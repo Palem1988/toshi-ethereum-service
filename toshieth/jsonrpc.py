@@ -112,7 +112,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
         if to_address is not None and isinstance(to_address, str):
             to_address = to_address.strip()
         if from_address is not None and isinstance(from_address, str):
-            to_address = to_address.strip()
+            from_address = from_address.strip()
         if token_address is not None and isinstance(token_address, str):
             token_address = token_address.strip()
 
