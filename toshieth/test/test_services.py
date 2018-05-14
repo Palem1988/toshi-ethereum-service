@@ -20,6 +20,8 @@ from toshieth.test.test_transaction import (
 from toshi.test.ethereum.parity import FAUCET_PRIVATE_KEY, FAUCET_ADDRESS
 from toshieth.test.test_pn_registration import TEST_GCM_ID, TEST_GCM_ID_2
 
+from toshieth.tasks import manager_dispatcher
+
 class TestSendGCMPushNotification(FaucetMixin, EthServiceBaseTest):
 
     @gen_test(timeout=30)
@@ -447,3 +449,41 @@ class MonitorErrorsTest(FaucetMixin, EthServiceBaseTest):
         self.assertEqual(resp.code, 200)
 
         self.assertEqual(resp.body.decode('utf-8'), 'OK')
+
+class ManagerTest(FaucetMixin, EthServiceBaseTest):
+
+    @gen_test(timeout=45)
+    @requires_full_stack(block_monitor='monitor', push_client=True)
+    async def test_eth_nodes_out_of_sync_on_confirm(self, *, monitor, push_client):
+
+        # shutdown the monitor so that the confirmed transaction status can be
+        # manually triggered before the transaction is actually confirmed
+        await monitor.shutdown()
+
+        val = 761751855997712
+
+        body = {
+            "registration_id": TEST_GCM_ID,
+            "address": TEST_ID_ADDRESS
+        }
+        resp = await self.fetch_signed("/gcm/register", signing_key=TEST_ID_KEY, method="POST", body=body)
+        self.assertResponseCodeEqual(resp, 204, resp.body)
+
+        tx_hash = await self.send_tx(FAUCET_PRIVATE_KEY, TEST_ID_ADDRESS, val)
+        tx_id = None
+        while tx_id is None:
+            async with self.pool.acquire() as con:
+                tx_id = await con.fetchval("SELECT transaction_id FROM transactions WHERE hash = $1", tx_hash)
+        # force confirmed, even though it should take some time
+        manager_dispatcher.update_transaction(tx_id, 'confirmed')
+
+        _, pn = await push_client.get()
+        message = parse_sofa_message(pn['message'])
+        self.assertIsInstance(message, SofaPayment)
+        self.assertEqual(message['txHash'], tx_hash)
+        self.assertEqual(message['status'], 'unconfirmed')
+        _, pn = await push_client.get()
+        message = parse_sofa_message(pn['message'])
+        self.assertIsInstance(message, SofaPayment)
+        self.assertEqual(message['txHash'], tx_hash)
+        self.assertEqual(message['status'], 'confirmed')

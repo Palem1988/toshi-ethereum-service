@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import random
+import time
 
 from tornado.httpclient import AsyncHTTPClient
 from tornado.escape import json_decode, json_encode
@@ -298,7 +300,7 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
             manager_dispatcher.process_transaction_queue(ethereum_address)
 
     @log_unhandled_exceptions(logger=log)
-    async def update_transaction(self, transaction_id, status):
+    async def update_transaction(self, transaction_id, status, retry_start_time=0):
 
         async with self.db:
             tx = await self.db.fetchrow("SELECT * FROM transactions WHERE transaction_id = $1", transaction_id)
@@ -323,7 +325,9 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
 
         if status == 'confirmed':
             transaction = await self.eth.eth_getTransactionByHash(tx['hash'])
-            if transaction and 'blockNumber' in transaction:
+            if transaction and 'blockNumber' in transaction and transaction['blockNumber'] is not None:
+                if retry_start_time > 0:
+                    log.info("successfully confirmed tx {} after {} seconds".format(tx['hash'], round(time.time() - retry_start_time, 2)))
                 blocknumber = parse_int(transaction['blockNumber'])
                 async with self.db:
                     await self.db.execute("UPDATE transactions SET status = $1, blocknumber = $2, updated = (now() AT TIME ZONE 'utc') "
@@ -331,7 +335,16 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
                                           status, blocknumber, transaction_id)
                     await self.db.commit()
             else:
-                log.error("requested transaction '{}''s status to be set to confirmed, but cannot find the transaction".format(tx['hash']))
+                # this is probably because the node hasn't caught up with the latest block yet, retry in a "bit" (but only retry up to 60 seconds)
+                if retry_start_time > 0 and time.time() - retry_start_time >= 60:
+                    if transaction is None:
+                        log.error("requested transaction {}'s status to be set to confirmed, but cannot find the transaction".format(tx['hash']))
+                    else:
+                        log.error("requested transaction {}'s status to be set to confirmed, but transaction is not confirmed on the node".format(tx['hash']))
+                    return
+                await asyncio.sleep(random.random())
+                manager_dispatcher.update_transaction(transaction_id, status, retry_start_time=retry_start_time or time.time())
+                return
         else:
             async with self.db:
                 await self.db.execute("UPDATE transactions SET status = $1, updated = (now() AT TIME ZONE 'utc') WHERE transaction_id = $2",
