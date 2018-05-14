@@ -96,7 +96,7 @@ class TokenHandlerTest(AsyncHandlerTest):
             )
             await con.executemany(
                 "INSERT INTO token_balances "
-                "(contract_address, eth_address, value) "
+                "(contract_address, eth_address, balance) "
                 "VALUES ($1, $2, $3)",
                 [("0x1111111111111111111111111111111111111111", TEST_ADDRESS, hex(2 * 10 ** 18)),
                  ("0x2222222222222222222222222222222222222222", TEST_ADDRESS, hex(10 ** 18))])
