@@ -17,7 +17,7 @@ from toshi.log import configure_logger, log_unhandled_exceptions
 from toshi.utils import parse_int
 from toshi.sofa import SofaPayment
 from toshi.ethereum.tx import (
-    create_transaction, encode_transaction
+    create_transaction, encode_transaction, calculate_transaction_hash
 )
 from toshi.ethereum.utils import data_decoder, data_encoder, decode_single_address
 
@@ -511,14 +511,28 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
 
                         # sanity check to make sure the tx still exists
                         if tx is None:
-                            # if not, set to error!
-                            log.warning("WARNING: unconfirmed transaction '{}' is not visible on the monitor node. Setting back to queued to force resubmission".format(transaction['hash']))
-                            async with self.db:
-                                await self.db.execute("UPDATE transactions SET status = $2 WHERE transaction_id = $1",
-                                                      transaction['transaction_id'], 'queued')
-                                await self.db.commit()
-
-                            addresses_to_check.add(transaction['from_address'])
+                            # if not, try resubmit
+                            # NOTE: it may just be an issue with load balanced nodes not seeing all pending transactions
+                            # so we don't want to adjust the status of the transaction at all at this stage
+                            value = parse_int(transaction['value'])
+                            gas = parse_int(transaction['gas'])
+                            gas_price = parse_int(transaction['gas_price'])
+                            data = data_decoder(transaction['data']) if transaction['data'] else b''
+                            tx = create_transaction(nonce=transaction['nonce'], value=value, gasprice=gas_price, startgas=gas,
+                                                    to=transaction['to_address'], data=data,
+                                                    v=parse_int(transaction['v']),
+                                                    r=parse_int(transaction['r']),
+                                                    s=parse_int(transaction['s']))
+                            if calculate_transaction_hash(tx) != transaction['hash']:
+                                log.warning("error resubmitting transaction {}: regenerating tx resulted in a different hash".format(transaction['hash']))
+                            else:
+                                tx_encoded = encode_transaction(tx)
+                                try:
+                                    await self.eth.eth_sendRawTransaction(tx_encoded)
+                                    addresses_to_check.add(transaction['from_address'])
+                                except Exception as e:
+                                    # note: usually not critical, don't panic
+                                    log.warning("error resubmitting transaction {}: {}".format(transaction['hash'], str(e)))
 
                         elif tx['blockNumber'] is not None:
                             # confirmed! update the status
