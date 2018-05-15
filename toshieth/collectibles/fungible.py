@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import random
+import time
 from toshi.log import configure_logger, log_unhandled_exceptions
 from toshi.ethereum.utils import data_decoder
 from ethereum.utils import sha3
@@ -10,6 +11,7 @@ from toshieth.collectibles.base import CollectiblesTaskManager
 from urllib.parse import urlparse
 from tornado.httpclient import AsyncHTTPClient
 from tornado.escape import json_decode
+from toshi.jsonrpc.errors import JsonRPCError
 
 log = logging.getLogger("toshieth.fungible")
 
@@ -52,7 +54,7 @@ class FungibleCollectibleTaskManager(CollectiblesTaskManager):
     async def process_block_for_asset_creation_contract(self, collectible_address):
 
         if collectible_address in self._processing and not self._processing[collectible_address].done():
-            log.warning("Already processing {}".format(collectible_address))
+            log.debug("Already processing {}".format(collectible_address))
             self._queue.add(collectible_address)
             return
 
@@ -75,15 +77,24 @@ class FungibleCollectibleTaskManager(CollectiblesTaskManager):
         topics = [[ASSET_CREATED_TOPIC]]
 
         log.debug("Getting logs for {} from blocks {}->{}".format(collectible_address, from_block_number, to_block_number))
+        req_start = time.time()
         while True:
             try:
                 logs = await self.eth.eth_getLogs(
                     fromBlock=from_block_number, toBlock=to_block_number,
                     topics=topics,
                     address=collectible['contract_address'])
+                if time.time() - req_start > 10:
+                    log.warning("eth_getLogs(fromBlock={}, toBlock={}, topics={}, address={}) took {} seconds to complete".format(
+                        from_block_number, to_block_number, topics, collectible['contract_address'], time.time() - req_start))
                 break
+            except JsonRPCError as e:
+                if e.message != "Unknown block number":
+                    log.exception("unexpected error getting logs for fungible creation contract: {} (after {} seconds)".format(collectible_address, time.time() - req_start))
+                await asyncio.sleep(random.random())
+                continue
             except:
-                log.exception("error getting logs for fungible creation contract: {}".format(collectible_address))
+                log.exception("unexpected error getting logs for fungible creation contract: {} (after {} seconds)".format(collectible_address, time.time() - req_start))
                 await asyncio.sleep(random.random())
                 continue
 
@@ -198,7 +209,7 @@ class FungibleCollectibleTaskManager(CollectiblesTaskManager):
     async def process_block_for_asset_contract(self, contract_address):
 
         if contract_address in self._processing and not self._processing[contract_address].done():
-            log.warning("Already processing {}".format(contract_address))
+            log.debug("Already processing {}".format(contract_address))
             self._queue.add(contract_address)
             return
 
@@ -222,15 +233,24 @@ class FungibleCollectibleTaskManager(CollectiblesTaskManager):
 
         updates = {}
 
+        req_start = time.time()
         while True:
             try:
                 logs = await self.eth.eth_getLogs(
                     fromBlock=from_block_number, toBlock=to_block_number,
                     topics=topics,
                     address=contract_address)
+                if time.time() - req_start > 10:
+                    log.warning("eth_getLogs(fromBlock={}, toBlock={}, topics={}, address={}) took {} seconds to complete".format(
+                        from_block_number, to_block_number, topics, contract_address, time.time() - req_start))
                 break
+            except JsonRPCError as e:
+                if e.message != "Unknown block number":
+                    log.exception("unexpected error getting logs for fungible asset contract: {} (after {} seconds)".format(contract_address, time.time() - req_start))
+                await asyncio.sleep(random.random())
+                continue
             except:
-                log.exception("Error getting logs for fungible asset contract")
+                log.exception("unexpected error getting logs for fungible asset contract: {} (after {} seconds)".format(contract_address, time.time() - req_start))
                 # backoff randomly
                 await asyncio.sleep(random.random())
                 continue

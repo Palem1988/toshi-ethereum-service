@@ -93,8 +93,9 @@ class ERC721TaskManager(CollectiblesTaskManager):
                         topics=[[event['topic_hash']]],
                         address=contract_address)
                     break
-                except:
-                    log.exception("error getting logs for block")
+                except Exception as e:
+                    if hasattr(e, 'message') and e.message != "Unknown block number":
+                        log.exception("unexpected error getting logs for collectible at address: {}".format(contract_address))
                     continue
 
             if len(logs):
