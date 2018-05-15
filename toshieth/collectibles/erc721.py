@@ -38,11 +38,11 @@ class ERC721TaskManager(CollectiblesTaskManager):
             asyncio.get_event_loop().create_task(self.process_block_for_contract(row['contract_address']))
 
     async def process_block_for_contract(self, collectible_address):
-        if collectible_address in self._processing:
-            log.warning("Already processing {}".format(collectible_address))
+        if collectible_address in self._processing and not self._processing[collectible_address].done():
+            log.debug("Already processing {}".format(collectible_address))
             return
 
-        self._processing[collectible_address] = True
+        self._processing[collectible_address] = asyncio.Task.current_task()
 
         async with self.pool.acquire() as con:
             latest_block_number = await con.fetchval(

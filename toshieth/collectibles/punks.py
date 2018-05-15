@@ -23,9 +23,9 @@ class CryptoPunksTaskManager(CollectiblesTaskManager):
         self.__call = 0
 
     async def process_block(self, blocknumber=None):
-        if self._processing is True:
+        if self._processing and not self._processing.done():
             return
-        self._processing = True
+        self._processing = asyncio.Task.current_task()
         self.__call += 1
 
         async with self.pool.acquire() as con:
