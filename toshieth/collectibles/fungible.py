@@ -83,7 +83,7 @@ class FungibleCollectibleTaskManager(CollectiblesTaskManager):
                     address=collectible['contract_address'])
                 break
             except:
-                log.execption("error getting logs for fungible creation contract: {}".format(collectible_address))
+                log.exception("error getting logs for fungible creation contract: {}".format(collectible_address))
                 await asyncio.sleep(random.random())
                 continue
 

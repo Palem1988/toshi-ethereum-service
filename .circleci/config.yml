@@ -54,8 +54,8 @@ jobs:
       - run:
           name: Install Parity
           command: |
-            wget http://d1h4xl4cr1h0mo.cloudfront.net/v1.9.5/x86_64-unknown-debian-gnu/parity_1.9.5_debian_amd64.deb
-            sudo dpkg -i parity_1.9.5_debian_amd64.deb
+            wget http://d1h4xl4cr1h0mo.cloudfront.net/v1.10.3/x86_64-unknown-debian-gnu/parity_1.10.3_debian_amd64.deb
+            sudo dpkg -i parity_1.10.3_debian_amd64.deb
             parity --version
       - run:
           name: Install Test Requirements

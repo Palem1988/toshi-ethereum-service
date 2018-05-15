@@ -264,7 +264,7 @@ class MockPushClient:
     def get(self):
         return self.send_queue.get()
 
-def requires_collectible_monitor(func=None, pass_collectible_monitor=False):
+def requires_collectible_monitor(func=None, pass_collectible_monitor=False, pass_fungible_monitor=False):
     """Used to ensure all database connections are returned to the pool
     before finishing the test"""
 
@@ -290,6 +290,12 @@ def requires_collectible_monitor(func=None, pass_collectible_monitor=False):
                     kwargs['collectible_monitor'] = monitor
                 else:
                     kwargs[pass_collectible_monitor] = monitor
+
+            if pass_fungible_monitor:
+                if pass_collectible_monitor is True:
+                    kwargs['fungible_monitor'] = fung
+                else:
+                    kwargs[pass_fungible_monitor] = fung
 
             try:
                 f = fn(self, *args, **kwargs)
@@ -390,7 +396,7 @@ def composed(*decs):
         return f
     return deco
 
-def requires_full_stack(func=None, *, redis=None, parity=None, ethminer=None, manager=None, block_monitor=None, push_client=None, erc20_manager=None, collectible_monitor=None):
+def requires_full_stack(func=None, *, redis=None, parity=None, ethminer=None, manager=None, block_monitor=None, push_client=None, erc20_manager=None, collectible_monitor=None, fungible_monitor=None):
     dec = composed(
         requires_database,
         (requires_redis, {'pass_redis': redis}),
@@ -400,7 +406,7 @@ def requires_full_stack(func=None, *, redis=None, parity=None, ethminer=None, ma
         (requires_block_monitor, {'pass_monitor': block_monitor}),
         (requires_push_service, (MockPushClient,), {'pass_push_client': push_client}),
         (requires_erc20_manager, {'pass_erc20_manager': erc20_manager}),
-        (requires_collectible_monitor, {'pass_collectible_monitor': collectible_monitor})
+        (requires_collectible_monitor, {'pass_collectible_monitor': collectible_monitor, 'pass_fungible_monitor': fungible_monitor})
     )
     if func is None:
         return dec
