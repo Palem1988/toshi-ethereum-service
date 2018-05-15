@@ -206,3 +206,84 @@ class CustomERC20Test(EthServiceBaseTest):
         self.assertResponseCodeEqual(resp, 400)
         body = json_decode(resp.body)
         self.assertEqual(body['errors'][0]['message'], "Invalid ERC20 Token")
+
+    @gen_test(timeout=30)
+    @requires_full_stack(block_monitor=True)
+    async def test_new_custom_erc20_token_is_hidden_from_others(self, *, monitor):
+
+        value = 10 * 10 ** 18
+        name = "TokEN"
+        symbol = "TOK"
+        decimals = 18
+        contract = await self.deploy_erc20_contract(symbol, name, decimals)
+        await contract.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, value)
+        await contract.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS_2, value)
+        await contract.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS_3, value)
+
+        # initialise token registrations
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS))
+        self.assertResponseCodeEqual(resp, 200)
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS_2))
+        self.assertResponseCodeEqual(resp, 200)
+
+        await monitor.block_check()
+
+        resp = await self.fetch_signed("/token", method="POST", signing_key=TEST_PRIVATE_KEY, body={
+            "contract_address": contract.address})
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(body['name'], name)
+        self.assertEqual(body['symbol'], symbol)
+        self.assertEqual(body['decimals'], decimals)
+        self.assertEqual(body['balance'], hex(value))
+
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 1)
+
+        # wait a bit for things to happen
+        await asyncio.sleep(2)
+
+        # make sure other the main address still has the custom token
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 1)
+        # make sure other addresses don't have any tokens still
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS_2))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 0)
+
+        # check that new addresses also don't get custom tokens by default (even if they hold value)
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS_3))
+        self.assertResponseCodeEqual(resp, 200)
+
+        # wait a bit for things to happen
+        await asyncio.sleep(1)
+
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS_3))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 0)
+
+        # make sure they can add the token now
+        resp = await self.fetch_signed("/token", method="POST", signing_key=TEST_PRIVATE_KEY_3, body={
+            "contract_address": contract.address})
+        self.assertResponseCodeEqual(resp, 200)
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS_3))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 1)
+        self.assertEqual(body['tokens'][0]['balance'], hex(value))
+
+        # make sure the address also receives updates
+        await contract.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS_3, value)
+        await monitor.block_check()
+        await asyncio.sleep(0.1)
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS_3))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 1)
+        self.assertEqual(body['tokens'][0]['balance'], hex(value * 2))

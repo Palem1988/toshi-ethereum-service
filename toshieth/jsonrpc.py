@@ -644,10 +644,10 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
             return None
 
         async with self.db:
-            await self.db.execute("INSERT INTO tokens (contract_address, name, symbol, decimals, custom) "
-                                  "VALUES ($1, $2, $3, $4, $5) "
+            await self.db.execute("INSERT INTO tokens (contract_address, name, symbol, decimals, custom, ready) "
+                                  "VALUES ($1, $2, $3, $4, $5, $6) "
                                   "ON CONFLICT (contract_address) DO NOTHING",
-                                  contract_address, name, symbol, decimals, True)
+                                  contract_address, name, symbol, decimals, True, True)
             await self.db.commit()
 
         rval = {

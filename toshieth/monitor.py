@@ -241,7 +241,7 @@ class BlockMonitor:
         if not self._shutdown:
 
             async with self.pool.acquire() as con:
-                rows = await con.fetch("SELECT contract_address FROM tokens WHERE ready = false")
+                rows = await con.fetch("SELECT contract_address FROM tokens WHERE ready = FALSE AND custom = FALSE")
                 if len(rows) > 0:
                     total_registrations = await con.fetchval("SELECT COUNT(*) FROM token_registrations")
                 else:

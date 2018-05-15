@@ -35,9 +35,10 @@ class ERC20UpdateHandler(EthereumMixin, BaseTaskHandler):
                 erc20_dispatcher.update_token_cache(contract_address, *eth_addresses, blocknumber=blocknumber).delay(1)
                 return
             if is_wildcard:
-                tokens = await self.db.fetch("SELECT contract_address FROM tokens where custom = FALSE")
+                tokens = await self.db.fetch("SELECT contract_address, custom FROM tokens where custom = FALSE")
             else:
-                tokens = [{'contract_address': contract_address}]
+                tokens = await self.db.fetch("SELECT contract_address, custom FROM tokens where contract_address = $1",
+                                             contract_address)
 
         if is_wildcard:
             if len(eth_addresses) > 1:
@@ -59,13 +60,13 @@ class ERC20UpdateHandler(EthereumMixin, BaseTaskHandler):
             for token in tokens:
                 data = "0x70a08231000000000000000000000000" + eth_address[2:]
                 f = client.eth_call(to_address=token['contract_address'], data=data, block=blocknumber)
-                futures.append((token['contract_address'], eth_address, f))
+                futures.append((token['contract_address'], eth_address, token['custom'], f))
 
         if len(futures) > 0:
             await client.execute()
 
             bulk_insert = []
-            for token_contract_address, eth_address, f in futures:
+            for token_contract_address, eth_address, custom, f in futures:
                 try:
                     value = f.result()
                     if value == "0x0000000000000000000000000000000000000000000000000000000000000000" or value == "0x":
@@ -74,7 +75,7 @@ class ERC20UpdateHandler(EthereumMixin, BaseTaskHandler):
                         value = 0
                     else:
                         value = parse_int(value)  # remove hex padding of value
-                    bulk_insert.append((token_contract_address, eth_address, hex(value)))
+                    bulk_insert.append((token_contract_address, eth_address, hex(value), 0 if custom else 1))
                 except JsonRPCError as e:
                     if e.message == "Unknown Block Number":
                         # reschedule the update and abort for now
@@ -87,10 +88,10 @@ class ERC20UpdateHandler(EthereumMixin, BaseTaskHandler):
             if len(bulk_insert) > 0:
                 async with self.db:
                     await self.db.executemany(
-                        "INSERT INTO token_balances (contract_address, eth_address, balance) "
-                        "VALUES ($1, $2, $3) "
+                        "INSERT INTO token_balances (contract_address, eth_address, balance, visibility) "
+                        "VALUES ($1, $2, $3, $4) "
                         "ON CONFLICT (contract_address, eth_address) "
-                        "DO UPDATE set balance = EXCLUDED.balance",
+                        "DO UPDATE SET balance = EXCLUDED.balance",
                         bulk_insert)
                     await self.db.commit()
                     send_update = True
