@@ -504,10 +504,14 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
 
                     # check on unconfirmed transactions first
                     if transaction['status'] == 'unconfirmed':
-                        # we need to check the true status of unconfirmed transactions
+                        # we neehed to check the true status of unconfirmed transactions
                         # as the block monitor may be inbetween calls and not have seen
                         # this transaction to mark it as confirmed.
-                        tx = await self.eth.eth_getTransactionByHash(transaction['hash'])
+                        try:
+                            tx = await self.eth.eth_getTransactionByHash(transaction['hash'])
+                        except:
+                            log.exception("Error getting transaction {} in sanity check", transaction['hash'])
+                            continue
 
                         # sanity check to make sure the tx still exists
                         if tx is None:
