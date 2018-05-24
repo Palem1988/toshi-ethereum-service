@@ -1,2 +1,2 @@
 mixpanel
--e git+https://github.com/toshiapp/toshi-services-lib.git@v0.0.9#egg=toshi-services[ethereum]
+-e git+https://github.com/toshiapp/toshi-services-lib.git@v0.0.10#egg=toshi-services[ethereum]

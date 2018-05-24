@@ -1,9 +1,8 @@
 import asyncio
 import logging
-import tornado.httpclient
 from ethereum.abi import decode_abi, decode_single
 from toshi.jsonrpc.client import JsonRPCClient
-from toshi.jsonrpc.errors import JsonRPCError
+from toshi.jsonrpc.errors import JsonRPCError, HTTPError
 from toshi.log import configure_logger, log_unhandled_exceptions
 from toshi.database import prepare_database
 from toshi.redis import prepare_redis, get_redis_connection
@@ -27,7 +26,7 @@ UNCONFIRMED_TRANSACTIONS_REDIS_KEY = "toshieth.monitor:unconfirmed_txs"
 
 log = logging.getLogger("toshieth.monitor")
 
-JSONRPC_ERRORS = (tornado.httpclient.HTTPError,
+JSONRPC_ERRORS = (HTTPError,
                   ConnectionRefusedError,  # Server isn't running
                   OSError,  # No route to host
                   JsonRPCError,  #
@@ -45,6 +44,9 @@ class BlockMonitor:
             node_url = config['ethereum']['url']
 
         self.eth = JsonRPCClient(node_url)
+        # filter health processes depend on some of the calls failing on the first time
+        # so we have a separate client to handle those
+        self.filter_eth = JsonRPCClient(node_url, should_retry=False)
 
         self._check_schedule = None
         self._poll_schedule = None
@@ -104,7 +106,7 @@ class BlockMonitor:
         backoff = 0
         while not self._shutdown:
             try:
-                filter_id = await self.eth.eth_newPendingTransactionFilter()
+                filter_id = await self.filter_eth.eth_newPendingTransactionFilter()
                 log.info("Listening for new pending transactions with filter id: {}".format(filter_id))
                 self._new_pending_transaction_filter_id = filter_id
                 self._last_saw_new_pending_transactions = asyncio.get_event_loop().time()
@@ -119,7 +121,7 @@ class BlockMonitor:
         backoff = 0
         while not self._shutdown:
             try:
-                filter_id = await self.eth.eth_newBlockFilter()
+                filter_id = await self.filter_eth.eth_newBlockFilter()
                 log.info("Listening for new blocks with filter id: {}".format(filter_id))
                 self._new_block_filter_id = filter_id
                 self._last_saw_new_block = asyncio.get_event_loop().time()
@@ -271,7 +273,7 @@ class BlockMonitor:
             if self._new_pending_transaction_filter_id is not None:
                 # get the list of new pending transactions
                 try:
-                    new_pending_transactions = await self.eth.eth_getFilterChanges(self._new_pending_transaction_filter_id)
+                    new_pending_transactions = await self.filter_eth.eth_getFilterChanges(self._new_pending_transaction_filter_id)
                     # add any to the list of unprocessed transactions
                     for tx_hash in new_pending_transactions:
                         await self.redis.hsetnx(
@@ -299,7 +301,7 @@ class BlockMonitor:
 
             if self._new_block_filter_id is not None:
                 try:
-                    new_blocks = await self.eth.eth_getFilterChanges(self._new_block_filter_id)
+                    new_blocks = await self.filter_eth.eth_getFilterChanges(self._new_block_filter_id)
                 except JSONRPC_ERRORS:
                     log.exception("Error getting new block filter")
                     new_blocks = None
