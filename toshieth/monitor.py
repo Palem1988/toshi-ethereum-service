@@ -65,6 +65,7 @@ class BlockMonitor:
         self._shutdown = False
 
         self._lastlog = 0
+        self._blocktimes = []
 
     def start(self):
         if not hasattr(self, '_startup_future'):
@@ -183,9 +184,12 @@ class BlockMonitor:
                 log.exception("Failed eth_getBlockByNumber call")
                 break
             if block:
-                if self._lastlog + 1800 < asyncio.get_event_loop().time():
+                processing_start_time = asyncio.get_event_loop().time()
+                if self._lastlog + 300 < asyncio.get_event_loop().time():
                     self._lastlog = asyncio.get_event_loop().time()
                     log.info("Processing block {}".format(block['number']))
+                    if len(self._blocktimes) > 0:
+                        log.info("Average processing time per last {} blocks: {}".format(len(self._blocktimes), sum(self._blocktimes) / len(self._blocktimes)))
 
                 if block['logsBloom'] != "0x" + ("0" * 512):
                     try:
@@ -204,11 +208,14 @@ class BlockMonitor:
                     logs_list = []
                     logs = {}
 
+                process_tx_tasks = []
                 for tx in block['transactions']:
                     # send notifications to sender and reciever
                     if tx['hash'] in logs:
                         tx['logs'] = logs[tx['hash']]
-                    await self.process_transaction(tx)
+                    process_tx_tasks.append(
+                        asyncio.get_event_loop().create_task(self.process_transaction(tx)))
+                await asyncio.gather(*process_tx_tasks)
 
                 if logs_list:
                     # send notifications for anyone registered
@@ -233,6 +240,10 @@ class BlockMonitor:
                                           block_number)
 
                 collectibles_dispatcher.notify_new_block(block_number)
+                processing_end_time = asyncio.get_event_loop().time()
+                self._blocktimes.append(processing_end_time - processing_start_time)
+                if len(self._blocktimes) > 100:
+                    self._blocktimes = self._blocktimes[-100:]
 
             else:
 
