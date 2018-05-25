@@ -102,7 +102,8 @@ class CryptoPunksTaskManager(CollectiblesTaskManager):
                         tx['token_id'], tx['function'], tx['to_address']))
                     token_image = config['collectibles']['image_format'].format(
                         contract_address=CRYPTO_PUNKS_CONTRACT_ADDRESS,
-                        token_id=tx['token_id'])
+                        token_id_hex=hex(tx['token_id']),
+                        token_id_int=tx['token_id'])
                     updates.append((CRYPTO_PUNKS_CONTRACT_ADDRESS, hex(tx['token_id']), tx['to_address'], token_image))
 
             async with self.pool.acquire() as con:
