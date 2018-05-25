@@ -765,6 +765,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
             return {"collectibles": [{
                 "contract_address": c['contract_address'],
                 "value": hex(c['value']),
+                "balance": hex(c['value']),
                 "name": c['name'],
                 "url": c["url"],
                 "icon": c['icon']
@@ -804,5 +805,6 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
                 "icon": collectible["icon"],
                 "url": collectible["url"],
                 "value": hex(len(tokens)),
+                "balance": hex(len(tokens)),
                 "tokens": tokens
             }
