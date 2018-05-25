@@ -46,7 +46,10 @@ class BlockMonitor:
         self.eth = JsonRPCClient(node_url)
         # filter health processes depend on some of the calls failing on the first time
         # so we have a separate client to handle those
+
         self.filter_eth = JsonRPCClient(node_url, #should_retry=False,
+                                        force_instance=True,
+                                        connect_timeout=10.0,
                                         request_timeout=60.0)
 
         self._check_schedule = None
