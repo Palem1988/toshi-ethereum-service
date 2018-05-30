@@ -77,7 +77,7 @@ class ERC20UpdateHandler(EthereumMixin, BaseTaskHandler):
                         value = parse_int(value)  # remove hex padding of value
                     bulk_insert.append((token_contract_address, eth_address, hex(value), 0 if custom else 1))
                 except JsonRPCError as e:
-                    if e.message == "Unknown Block Number":
+                    if e.message == "Unknown Block Number" or e.message == "This request is not supported because your node is running with state pruning. Run with --pruning=archive.":
                         # reschedule the update and abort for now
                         log.info("got unknown block number in erc20 cache update")
                         erc20_dispatcher.update_token_cache(contract_address, *eth_addresses, blocknumber=blocknumber).delay(1)

@@ -824,3 +824,37 @@ class ERC20Test(EthServiceBaseTest):
 
         result = await ws_con.read(timeout=1)
         self.assertIsNone(result)
+
+    @gen_test(timeout=60)
+    @requires_full_stack(parity=True, push_client=True, block_monitor=True, erc20_manager=True)
+    async def test_token_balance_updates_with_old_nodes(self, *, parity, push_client, monitor, erc20_manager):
+        """Tests that if a node is behind in blocks, we retry until the node catches up"""
+        contract = await self.deploy_erc20_contract("TST", "Test Token", 18)
+        await contract.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 * 10 ** 18)
+        await self.faucet(TEST_ADDRESS, 10 ** 18)
+
+        await self.send_tx(TEST_PRIVATE_KEY, TEST_ADDRESS_2, 5 * 10 ** 18, token_address=contract.address)
+        tokens = []
+        while not tokens:
+            async with self.pool.acquire() as con:
+                tokens = await con.fetch("SELECT * FROM token_balances WHERE eth_address = $1",
+                                         TEST_ADDRESS_2)
+        async with self.pool.acquire() as con:
+            bn = await con.fetchval("SELECT blocknumber FROM last_blocknumber")
+            target_bn = bn + 10
+            await con.execute("UPDATE last_blocknumber SET blocknumber = $1", target_bn)
+            await con.execute("UPDATE token_balances SET balance = '0x0'")
+            tokens = await con.fetch("SELECT * FROM token_balances WHERE eth_address = $1",
+                                     TEST_ADDRESS_2)
+            self.assertEqual(tokens[0]['balance'], hex(0))
+
+        from toshieth.tasks import erc20_dispatcher
+        erc20_dispatcher.update_token_cache(contract.address, TEST_ADDRESS_2, blocknumber=target_bn)
+        while bn < target_bn + 1:
+            async with self.pool.acquire() as con:
+                bn = await con.fetchval("SELECT blocknumber FROM last_blocknumber")
+            await asyncio.sleep(0.1)
+        async with self.pool.acquire() as con:
+            tokens = await con.fetch("SELECT * FROM token_balances WHERE eth_address = $1",
+                                     TEST_ADDRESS_2)
+        self.assertEqual(tokens[0]['balance'], hex(5 * 10 ** 18))
