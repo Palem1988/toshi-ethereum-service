@@ -3,7 +3,6 @@ from toshi.handlers import BaseHandler
 from toshi.errors import JSONHTTPError
 from toshi.jsonrpc.errors import JsonRPCInternalError
 from toshi.database import DatabaseMixin
-from toshi.ethereum.mixin import EthereumMixin
 from toshi.jsonrpc.errors import JsonRPCError
 from toshi.redis import RedisMixin
 from toshi.analytics import AnalyticsMixin
@@ -74,7 +73,7 @@ class TokenListHandler(DatabaseMixin, BaseHandler):
         self.write({"tokens": results})
 
 
-class TokenBalanceHandler(DatabaseMixin, EthereumMixin, BaseHandler):
+class TokenBalanceHandler(DatabaseMixin, BaseHandler):
 
     async def get(self, eth_address, token_address=None):
 
@@ -97,7 +96,7 @@ class TokenBalanceHandler(DatabaseMixin, EthereumMixin, BaseHandler):
         else:
             self.write({"tokens": result})
 
-class TokenHandler(DatabaseMixin, EthereumMixin, RequestVerificationMixin, BaseHandler):
+class TokenHandler(DatabaseMixin, RequestVerificationMixin, BaseHandler):
 
     async def get(self, contract_address):
 
@@ -146,7 +145,7 @@ class TokenHandler(DatabaseMixin, EthereumMixin, RequestVerificationMixin, BaseH
         self.set_status(204)
 
 
-class CollectiblesHandler(DatabaseMixin, EthereumMixin, BaseHandler):
+class CollectiblesHandler(DatabaseMixin, BaseHandler):
 
     async def get(self, address, contract_address=None):
 
@@ -163,7 +162,7 @@ class CollectiblesHandler(DatabaseMixin, EthereumMixin, BaseHandler):
             raise JSONHTTPError(404, body={'errors': [{'id': 'not_found', 'message': 'Not Found'}]})
         self.write(result)
 
-class BalanceHandler(DatabaseMixin, EthereumMixin, BaseHandler):
+class BalanceHandler(DatabaseMixin, BaseHandler):
 
     async def get(self, address):
 
@@ -178,7 +177,7 @@ class BalanceHandler(DatabaseMixin, EthereumMixin, BaseHandler):
 
         self.write(result)
 
-class TransactionSkeletonHandler(EthereumMixin, RedisMixin, BaseHandler):
+class TransactionSkeletonHandler(RedisMixin, BaseHandler):
 
     async def post(self):
 
@@ -208,7 +207,7 @@ class TransactionSkeletonHandler(EthereumMixin, RedisMixin, BaseHandler):
 
         self.write(result)
 
-class SendTransactionHandler(BalanceMixin, EthereumMixin, DatabaseMixin, RedisMixin, RequestVerificationMixin, BaseHandler):
+class SendTransactionHandler(BalanceMixin, DatabaseMixin, RedisMixin, RequestVerificationMixin, BaseHandler):
 
     async def post(self):
 
@@ -231,7 +230,7 @@ class SendTransactionHandler(BalanceMixin, EthereumMixin, DatabaseMixin, RedisMi
             "tx_hash": result
         })
 
-class TransactionHandler(EthereumMixin, DatabaseMixin, BaseHandler):
+class TransactionHandler(DatabaseMixin, BaseHandler):
 
     async def get(self, tx_hash):
 
@@ -270,7 +269,7 @@ class TransactionHandler(EthereumMixin, DatabaseMixin, BaseHandler):
 
             self.write(tx)
 
-class CancelTransactionHandler(EthereumMixin, DatabaseMixin, BaseHandler):
+class CancelTransactionHandler(DatabaseMixin, BaseHandler):
 
     async def post(self):
 

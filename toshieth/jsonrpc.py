@@ -4,7 +4,7 @@ from toshi.jsonrpc.handlers import JsonRPCBase, map_jsonrpc_arguments
 from toshi.jsonrpc.errors import JsonRPCInvalidParamsError, JsonRPCError
 from toshi.analytics import AnalyticsMixin
 from toshi.database import DatabaseMixin
-from toshi.ethereum.mixin import EthereumMixin
+from toshi.jsonrpc.client import JsonRPCClient
 from toshi.redis import RedisMixin
 from toshi.ethereum.utils import data_decoder, data_encoder, checksum_validate_address
 from ethereum.exceptions import InvalidTransaction
@@ -56,7 +56,7 @@ GROUP BY c.contract_address, c.name, c.icon, c.url
 ORDER BY contract_address
 """
 
-class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, AnalyticsMixin, RedisMixin):
+class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, RedisMixin):
 
     def __init__(self, user_toshi_id, application, request):
         self.user_toshi_id = user_toshi_id
@@ -66,6 +66,14 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, EthereumMixin, A
     @property
     def network_id(self):
         return parse_int(config['ethereum']['network_id'])
+
+    @property
+    def eth(self):
+        if not hasattr(self, '_eth_jsonrpc_client'):
+            self._eth_jsonrpc_client = JsonRPCClient(
+                config['ethereum']['url'],
+                connect_timeout=5.0, request_timeout=5.0)
+        return self._eth_jsonrpc_client
 
     async def get_balance(self, address):
 

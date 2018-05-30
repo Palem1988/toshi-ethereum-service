@@ -43,11 +43,12 @@ class BlockMonitor:
             log.warning("monitor using config['ethereum'] node")
             node_url = config['ethereum']['url']
 
-        self.eth = JsonRPCClient(node_url)
+        self.eth = JsonRPCClient(node_url,
+                                 connect_timeout=5.0,
+                                 request_timeout=10.0)
         # filter health processes depend on some of the calls failing on the first time
         # so we have a separate client to handle those
-
-        self.filter_eth = JsonRPCClient(node_url, #should_retry=False,
+        self.filter_eth = JsonRPCClient(node_url,
                                         force_instance=True,
                                         connect_timeout=10.0,
                                         request_timeout=60.0)
@@ -598,6 +599,9 @@ class BlockMonitor:
     async def shutdown(self):
 
         self._shutdown = True
+
+        await self.filter_eth.close()
+
         if self._check_schedule:
             self._check_schedule.cancel()
         if self._poll_schedule:
