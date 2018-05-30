@@ -22,7 +22,7 @@ class BalanceMixin:
                 "SELECT hash, value, gas, gas_price, status FROM transactions "
                 "WHERE from_address = $1 "
                 "AND ("
-                "((status != 'error' AND status != 'confirmed') OR status IS NULL) "
+                "((status != 'error' AND status != 'confirmed') OR status = 'new') "
                 "OR (status = 'confirmed' AND blocknumber > $2))",
                 eth_address, block or 0)
 
@@ -30,7 +30,7 @@ class BalanceMixin:
                 "SELECT hash, value, status FROM transactions "
                 "WHERE to_address = $1 "
                 "AND ("
-                "((status != 'error' AND status != 'confirmed') OR status IS NULL) "
+                "((status != 'error' AND status != 'confirmed') OR status = 'new') "
                 "OR (status = 'confirmed' AND blocknumber > $2))",
                 eth_address, block or 0)
 

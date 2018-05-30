@@ -100,7 +100,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
             nonce = await self.db.fetchval(
                 "SELECT nonce FROM transactions "
                 "WHERE from_address = $1 "
-                "AND (status is NULL OR status = 'queued' OR status = 'unconfirmed') "
+                "AND (status = 'new' OR status = 'queued' OR status = 'unconfirmed') "
                 "ORDER BY nonce DESC",
                 address)
 
@@ -373,7 +373,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
             async with self.db:
                 existing = await self.db.fetchrow("SELECT * FROM transactions WHERE "
                                                   "from_address = $1 AND nonce = $2 AND "
-                                                  "(status != 'error' or status is NULL)",
+                                                  "(status != 'error' or status = 'new')",
                                                   from_address, tx.nonce)
 
             # disallow transaction overwriting when the gas is lower or the transaction is confirmed
@@ -487,7 +487,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
             async with self.db:
                 tx = await self.db.fetchrow(
                     "SELECT * FROM transactions WHERE "
-                    "hash = $1 AND (status != 'error' OR status IS NULL) "
+                    "hash = $1 AND (status != 'error' OR status = 'new') "
                     "ORDER BY transaction_id DESC",
                     tx_hash)
             if tx:
@@ -504,7 +504,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
             raise JsonRPCInvalidParamsError(data={'id': 'invalid_signature', 'message': 'Invalid Signature'})
 
         async with self.db:
-            tx = await self.db.fetchrow("SELECT * FROM transactions WHERE hash = $1 AND (status != 'error' OR status IS NULL)",
+            tx = await self.db.fetchrow("SELECT * FROM transactions WHERE hash = $1 AND (status != 'error' OR status = 'new')",
                                         tx_hash)
         if tx is None:
             raise JsonRPCError(None, -32000, "Transaction not found",

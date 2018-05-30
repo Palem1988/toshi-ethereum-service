@@ -69,7 +69,7 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
             transactions_out = await self.db.fetch(
                 "SELECT * FROM transactions "
                 "WHERE from_address = $1 "
-                "AND (status is NULL OR status = 'queued') "
+                "AND (status = 'new' OR status = 'queued') "
                 "AND r IS NOT NULL "
                 # order by nonce reversed so that .pop() can
                 # be used in the loop below
@@ -127,7 +127,7 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
                 # make sure the nonce is still valid
                 if nonce != transaction['nonce']:
                     # check if this is an overwrite
-                    if transaction['status'] is None:
+                    if transaction['status'] == 'new':
                         async with self.db:
                             old_tx = await self.db.fetchrow("SELECT * FROM transactions where from_address = $1 AND nonce = $2 AND hash != $3", ethereum_address, transaction['nonce'], transaction['hash'])
                         if old_tx:
@@ -263,7 +263,7 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
                             "SELECT * FROM transactions "
                             "WHERE to_address = $1 "
                             "AND ("
-                            "(status is NULL OR status = 'queued' OR status = 'unconfirmed') "
+                            "(status = 'new' OR status = 'queued' OR status = 'unconfirmed') "
                             "OR (status = 'confirmed' AND blocknumber > $2))",
                             ethereum_address, last_blocknumber or 0)
 
@@ -286,7 +286,7 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
 
                         # but we still need to send PNs for any "new" transactions
                         while transaction:
-                            if transaction['status'] is None:
+                            if transaction['status'] == 'new':
                                 await self.update_transaction(transaction['transaction_id'], 'queued')
                             transaction = transactions_out.pop() if transactions_out else None
                         break
@@ -445,7 +445,7 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
                 return
 
             # check if this is a brand new tx with no status
-            if tx['status'] is None:
+            if tx['status'] == 'new':
                 # if an error has happened before any PNs have been sent
                 # we only need to send the error to the sender, thus we
                 # only add 'to' if the new status is not an error
@@ -472,11 +472,11 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
     async def sanity_check(self, frequency):
         async with self.db:
             rows = await self.db.fetch(
-                "SELECT DISTINCT from_address FROM transactions WHERE (status = 'unconfirmed' OR status = 'queued' OR status IS NULL) "
+                "SELECT DISTINCT from_address FROM transactions WHERE (status = 'unconfirmed' OR status = 'queued' OR status = 'new') "
                 "AND v IS NOT NULL AND created < (now() AT TIME ZONE 'utc') - interval '3 minutes'"
             )
             rows2 = await self.db.fetch(
-                "WITH t1 AS (SELECT DISTINCT from_address FROM transactions WHERE (status IS NULL OR status = 'queued') AND v IS NOT NULL), "
+                "WITH t1 AS (SELECT DISTINCT from_address FROM transactions WHERE (status = 'new' OR status = 'queued') AND v IS NOT NULL), "
                 "t2 AS (SELECT from_address, COUNT(*) FROM transactions WHERE (status = 'unconfirmed' AND v IS NOT NULL) GROUP BY from_address) "
                 "SELECT t1.from_address FROM t1 LEFT JOIN t2 ON t1.from_address = t2.from_address WHERE t2.count IS NULL;")
         if rows or rows2:

@@ -403,13 +403,13 @@ class BlockMonitor:
             if len(db_txs) > 1:
                 # see if one has the same hash
                 db_tx = await con.fetchrow("SELECT * FROM transactions WHERE "
-                                           "from_address = $1 AND nonce = $2 AND hash = $3 AND (status != $4 OR status IS NULL)",
-                                           from_address, parse_int(transaction['nonce']), transaction['hash'], 'error')
+                                           "from_address = $1 AND nonce = $2 AND hash = $3 AND (status != 'error' OR status = 'new')",
+                                           from_address, parse_int(transaction['nonce']), transaction['hash'])
                 if db_tx is None:
                     # find if there are any that aren't marked as error
                     no_error = await con.fetch("SELECT * FROM transactions WHERE "
-                                               "from_address = $1 AND nonce = $2 AND hash != $3 AND (status != $4 OR status IS NULL)",
-                                               from_address, parse_int(transaction['nonce']), transaction['hash'], 'error')
+                                               "from_address = $1 AND nonce = $2 AND hash != $3 AND (status != 'error' OR status = 'new')",
+                                               from_address, parse_int(transaction['nonce']), transaction['hash'])
                     if len(no_error) == 1:
                         db_tx = no_error[0]
                     elif len(no_error) != 0:

@@ -111,7 +111,7 @@ class WebsocketJsonRPCHandler(ToshiEthJsonRPC):
         payments = []
         for tx in txs:
             status = tx['status']
-            if status is None or status == 'queued':
+            if status == 'new' or status == 'queued':
                 status = 'unconfirmed'
             value = parse_int(tx['value'])
             if value is None:

@@ -323,13 +323,12 @@ class AddressHandler(DatabaseMixin, BaseHandler):
             query += "from_address = $1 "
 
         if len(status) == 0:
-            query += "AND (status != $4 OR status IS NULL) "
-            args.append('error')
+            query += "AND (status != 'error' OR status = 'new') "
         else:
             status_query = []
             for s in status:
                 if s == 'queued':
-                    status_query.extend(["status = ${}".format(len(args) + 1), "status IS NULL"])
+                    status_query.extend(["status = ${}".format(len(args) + 1), "status = 'new'"])
                 else:
                     status_query.append("status = ${}".format(len(args) + 1))
                 args.append(s)

@@ -1,3 +1,5 @@
+CREATE TYPE transaction_status AS ENUM ('new', 'queued', 'unconfirmed', 'confirmed', 'error');
+
 CREATE TABLE IF NOT EXISTS transactions (
     transaction_id BIGSERIAL PRIMARY KEY,
 
@@ -22,7 +24,7 @@ CREATE TABLE IF NOT EXISTS transactions (
 
     -- the last seen status, used to know if PNs should be
     -- sent or not
-    status VARCHAR,
+    status transaction_status DEFAULT 'new',
     -- if confirmed, the block number that this tx is part of
     blocknumber BIGINT,
     error INTEGER,
@@ -195,4 +197,4 @@ CREATE INDEX IF NOT EXISTS idx_token_balance_eth_address_visibility_balance ON t
 
 CREATE INDEX IF NOT EXISTS idx_collectible_transfer_events_collectible_address ON collectible_transfer_events (collectible_address);
 
-UPDATE database_version SET version_number = 20;
+UPDATE database_version SET version_number = 21;
