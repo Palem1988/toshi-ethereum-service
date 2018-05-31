@@ -21,6 +21,8 @@ DEFAULT_POLL_DELAY = 1
 # 120 seconds as 1 minute of missing filter info is acceptable
 FILTER_TIMEOUT = 120
 SANITY_CHECK_CALLBACK_TIME = 10
+# 5 minutes delay until reporting errors when no new blocks are seen
+NEW_BLOCK_TIMEOUT = 300
 
 UNCONFIRMED_TRANSACTIONS_REDIS_KEY = "toshieth.monitor:unconfirmed_txs"
 
@@ -62,7 +64,7 @@ class BlockMonitor:
         self._process_unconfirmed_transactions_process = None
 
         self._new_pending_transaction_filter_id = None
-        self._new_block_filter_id = None
+        self._last_saw_new_block = asyncio.get_event_loop().time()
         self._shutdown = False
 
         self._lastlog = 0
@@ -105,8 +107,6 @@ class BlockMonitor:
     async def register_filters(self):
         if not self._shutdown:
             await self.register_new_pending_transaction_filter()
-        if not self._shutdown:
-            await self.register_new_block_filter()
 
     async def register_new_pending_transaction_filter(self):
         backoff = 0
@@ -119,21 +119,6 @@ class BlockMonitor:
                 return filter_id
             except:
                 log.exception("Error registering for new pending transactions")
-                if not self._shutdown:
-                    backoff = min(backoff + 1, 10)
-                    await asyncio.sleep(backoff)
-
-    async def register_new_block_filter(self):
-        backoff = 0
-        while not self._shutdown:
-            try:
-                filter_id = await self.filter_eth.eth_newBlockFilter()
-                log.info("Listening for new blocks with filter id: {}".format(filter_id))
-                self._new_block_filter_id = filter_id
-                self._last_saw_new_block = asyncio.get_event_loop().time()
-                return filter_id
-            except:
-                log.exception("Error registering for new blocks")
                 if not self._shutdown:
                     backoff = min(backoff + 1, 10)
                     await asyncio.sleep(backoff)
@@ -185,6 +170,7 @@ class BlockMonitor:
                 log.exception("Failed eth_getBlockByNumber call")
                 break
             if block:
+                self._last_saw_new_block = asyncio.get_event_loop().time()
                 processing_start_time = asyncio.get_event_loop().time()
                 if self._lastlog + 300 < asyncio.get_event_loop().time():
                     self._lastlog = asyncio.get_event_loop().time()
@@ -315,34 +301,15 @@ class BlockMonitor:
 
         if not self._shutdown:
 
-            if self._new_block_filter_id is not None:
+            # no need to run this if the block checking process is still running
+            if self._block_checking_process is None or self._block_checking_process.done():
                 try:
-                    new_blocks = await self.filter_eth.eth_getFilterChanges(self._new_block_filter_id)
+                    block_number = await self.filter_eth.eth_blockNumber()
                 except JSONRPC_ERRORS:
-                    log.exception("Error getting new block filter")
-                    new_blocks = None
-                if new_blocks is None:
-                    await self.register_filters()
-                    # do a block check right after as it may have taken some time to
-                    # reconnect and we may have missed a block notification
-                    new_blocks = [True]
-                # NOTE: this is not very smart, as if the block check is
-                # already running this will cause it to run twice. However,
-                # this is currently taken care of in the block check itself
-                # which should suffice.
-                if new_blocks and not self._shutdown:
-                    self._last_saw_new_block = asyncio.get_event_loop().time()
+                    log.exception("Error getting current block number")
+                    block_number = 0
+                if block_number > self.last_block_number and not self._shutdown:
                     self.schedule_block_check()
-                elif not self._shutdown and len(new_blocks) == 0:
-                    # make sure the filter timeout period hasn't passed
-                    time_since_last_new_block = int(asyncio.get_event_loop().time() - self._last_saw_new_block)
-                    if time_since_last_new_block > FILTER_TIMEOUT:
-                        log.warning("Haven't seen any new blocks for {} seconds".format(time_since_last_new_block))
-                        await self.register_new_block_filter()
-                        # also force a block check just incase
-                        self.schedule_block_check()
-            else:
-                log.warning("no filter id for new blocks")
 
         self._filter_poll_process = None
 
@@ -576,8 +543,6 @@ class BlockMonitor:
         # check that filter ids are set to something
         if self._new_pending_transaction_filter_id is None:
             await self.register_new_pending_transaction_filter()
-        if self._new_block_filter_id is None:
-            await self.register_new_block_filter()
         # check that poll callback is set and not in the past
         if self._poll_schedule is None:
             log.warning("Filter poll schedule is None!")
@@ -588,8 +553,15 @@ class BlockMonitor:
             if self._poll_schedule._when < self._poll_schedule._loop.time():
                 log.warning("Filter poll schedule is in the past!")
                 self.schedule_filter_poll()
+        # make sure there was a block somewhat recently
+        ok = True
+        time_since_last_new_block = int(asyncio.get_event_loop().time() - self._last_saw_new_block)
+        if time_since_last_new_block > NEW_BLOCK_TIMEOUT:
+            log.warning("Haven't seen any new blocks for {} seconds".format(time_since_last_new_block))
+            ok = False
         self._sanity_check_schedule = asyncio.get_event_loop().call_later(SANITY_CHECK_CALLBACK_TIME, self.run_sanity_check)
-        await self.redis.setex("monitor_sanity_check_ok", SANITY_CHECK_CALLBACK_TIME * 2, "OK")
+        if ok:
+            await self.redis.setex("monitor_sanity_check_ok", SANITY_CHECK_CALLBACK_TIME * 2, "OK")
         self._sanity_check_process = None
 
     @property

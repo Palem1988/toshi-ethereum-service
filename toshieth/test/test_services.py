@@ -440,9 +440,8 @@ class MonitorErrorsTest(FaucetMixin, EthServiceBaseTest):
         self.assertEqual(resp.code, 200)
         self.assertNotEqual(resp.body.decode('utf-8'), 'OK')
 
-        monitor._new_block_filter_id = None
-        last_block_number = monitor.last_block_number
-        while monitor.last_block_number == last_block_number:
+        monitor._new_pending_transaction_filter_id = None
+        while monitor._new_pending_transaction_filter_id is None:
             await asyncio.sleep(0.1)
 
         resp = await self.fetch("/status")
