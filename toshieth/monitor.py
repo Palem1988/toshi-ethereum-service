@@ -600,7 +600,10 @@ class BlockMonitor:
 
         self._shutdown = True
 
-        await self.filter_eth.close()
+        try:
+            await self.filter_eth.close()
+        except:
+            pass
 
         if self._check_schedule:
             self._check_schedule.cancel()
