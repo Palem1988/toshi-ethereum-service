@@ -265,7 +265,7 @@ class TestSendGCMPushNotification(FaucetMixin, EthServiceBaseTest):
                 rows = await con.fetch("SELECT * FROM transactions WHERE nonce = $1", tx.nonce)
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]['hash'], tx_hash)
-            if rows[0]['status'] is not None:
+            if rows[0]['status'] != 'new':
                 self.assertEqual(rows[0]['status'], 'unconfirmed')
             self.assertIsNone(rows[0]['error'])
 

@@ -509,7 +509,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
         if tx is None:
             raise JsonRPCError(None, -32000, "Transaction not found",
                                {'id': 'not_found', 'message': 'Transaction not found'})
-        elif tx['status'] != 'queued' and tx['status'] is not None:
+        elif tx['status'] != 'queued' and tx['status'] != 'new':
             raise JsonRPCError(None, -32000, "Transaction already sent to node",
                                {'id': 'invalid_transaction_status', 'message': 'Transaction already sent to node'})
 
