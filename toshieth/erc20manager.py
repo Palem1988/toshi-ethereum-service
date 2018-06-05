@@ -80,6 +80,9 @@ class ERC20UpdateHandler(EthereumMixin, BaseTaskHandler):
                     if e.message == "Unknown Block Number" or e.message == "This request is not supported because your node is running with state pruning. Run with --pruning=archive.":
                         # reschedule the update and abort for now
                         log.info("got unknown block number in erc20 cache update")
+                        if is_wildcard:
+                            # clear up bulk_token_update key, as we want to allow this to run again
+                            await self.redis.delete("bulk_token_update:{}".format(eth_addresses[0]))
                         erc20_dispatcher.update_token_cache(contract_address, *eth_addresses, blocknumber=blocknumber).delay(1)
                         return
                     log.exception("WARNING: failed to update token cache of '{}' for address: {}".format(token_contract_address, eth_address))

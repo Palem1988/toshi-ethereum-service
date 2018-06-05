@@ -850,11 +850,15 @@ class ERC20Test(EthServiceBaseTest):
 
         from toshieth.tasks import erc20_dispatcher
         erc20_dispatcher.update_token_cache(contract.address, TEST_ADDRESS_2, blocknumber=target_bn)
+        erc20_dispatcher.update_token_cache("*", TEST_ADDRESS, blocknumber=target_bn)
         while bn < target_bn + 1:
             async with self.pool.acquire() as con:
                 bn = await con.fetchval("SELECT blocknumber FROM last_blocknumber")
             await asyncio.sleep(0.1)
         async with self.pool.acquire() as con:
             tokens = await con.fetch("SELECT * FROM token_balances WHERE eth_address = $1",
+                                     TEST_ADDRESS)
+            tokens2 = await con.fetch("SELECT * FROM token_balances WHERE eth_address = $1",
                                      TEST_ADDRESS_2)
         self.assertEqual(tokens[0]['balance'], hex(5 * 10 ** 18))
+        self.assertEqual(tokens2[0]['balance'], hex(5 * 10 ** 18))
