@@ -8,7 +8,7 @@ from tornado.testing import gen_test
 from toshieth.test.base import EthServiceBaseTest, requires_full_stack
 from toshi.test.ethereum.faucet import FAUCET_PRIVATE_KEY
 from toshi.sofa import parse_sofa_message
-from toshi.ethereum.utils import private_key_to_address, data_decoder
+from toshi.ethereum.utils import private_key_to_address, data_decoder, checksum_encode_address
 
 from toshi.ethereum.contract import Contract
 
@@ -289,3 +289,31 @@ class CustomERC20Test(EthServiceBaseTest):
         body = json_decode(resp.body)
         self.assertEqual(len(body['tokens']), 1)
         self.assertEqual(body['tokens'][0]['balance'], hex(value * 2))
+
+    @gen_test(timeout=30)
+    @requires_full_stack(block_monitor=True)
+    async def test_erc20_contract_address_casing_matches(self, *, monitor):
+
+        normal_contract = await self.deploy_erc20_contract("TOK", "TokEN", 18)
+        async with self.pool.acquire() as con:
+            await con.execute("INSERT INTO tokens (contract_address, symbol, name, decimals) VALUES ($1, $2, $3, $4)",
+                              normal_contract.address, "TOK", "TokEN", 18)
+
+        # initialise token registrations
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS))
+        self.assertResponseCodeEqual(resp, 200)
+        await monitor.block_check()
+
+        resp = await self.fetch_signed("/token", method="POST", signing_key=TEST_PRIVATE_KEY, body={
+            "contract_address": normal_contract.address})
+        self.assertResponseCodeEqual(resp, 200)
+
+        resp = await self.fetch_signed("/token", method="POST", signing_key=TEST_PRIVATE_KEY, body={
+            "contract_address": checksum_encode_address(normal_contract.address)})
+        self.assertResponseCodeEqual(resp, 200)
+
+        resp = await self.fetch("/tokens/{}".format(TEST_ADDRESS))
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 1)
+        self.assertEqual(body['tokens'][0]['balance'], hex(0))

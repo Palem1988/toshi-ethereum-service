@@ -613,6 +613,14 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
             return tokens
 
     async def get_token(self, contract_address):
+
+        if not validate_address(contract_address):
+            raise JsonRPCInvalidParamsError(data={'id': 'invalid_address', 'message': 'Invalid Contract Address'})
+        if contract_address != contract_address.lower():
+            if not checksum_validate_address(contract_address):
+                raise JsonRPCInvalidParamsError(data={'id': 'invalid_address', 'message': 'Invalid Contract Address Checksum'})
+            contract_address = contract_address.lower()
+
         async with self.db:
             row = await self.db.fetchrow(
                 "SELECT symbol, name, contract_address, decimals, format FROM tokens WHERE contract_address = $1",
@@ -732,6 +740,9 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
         if token is None:
             raise JsonRPCError(None, -32000, "Invalid ERC20 Token",
                                {'id': 'bad_arguments', 'message': "Invalid ERC20 Token"})
+
+        contract_address = token['contract_address']
+
         if 'balance' not in token:
             log.warning("didn't find a balance when adding custom token: {}".format(contract_address))
             balance = '0x0'
@@ -752,6 +763,10 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
 
         if not self.user_toshi_id:
             raise JsonRPCInvalidParamsError(data={'id': 'bad_arguments', 'message': "Missing authorisation"})
+
+        if not validate_address(contract_address):
+            raise JsonRPCInvalidParamsError(data={'id': 'invalid_address', 'message': 'Invalid Contract Address'})
+        contract_address = contract_address.lower()
 
         async with self.db:
             await self.db.execute("UPDATE token_balances SET visibility = 0 "
