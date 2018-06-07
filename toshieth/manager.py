@@ -26,35 +26,36 @@ from toshi.config import config
 
 log = logging.getLogger("toshieth.manager")
 
-ADDRESS_PROCESSING_QUEUE = {}
+TRANSACTION_PROCESSING_TIMEOUT = 120
 
 class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
 
+    @log_unhandled_exceptions(logger=log)
     async def process_transaction_queue(self, ethereum_address):
-
-        # make sure we only run one check per address at a time
-        if ethereum_address not in ADDRESS_PROCESSING_QUEUE:
-            ADDRESS_PROCESSING_QUEUE[ethereum_address] = asyncio.Queue()
-        else:
-            f = asyncio.Future()
-            ADDRESS_PROCESSING_QUEUE[ethereum_address].put_nowait(f)
-            await f
-
+        should_run = False
         try:
-            await self._process_transaction_queue(ethereum_address)
-        except asyncio.CancelledError:
-            pass
+            should_run = await self.redis.set('processing_tx_queue:{}'.format(ethereum_address), 1,
+                                              expire=TRANSACTION_PROCESSING_TIMEOUT,
+                                              exist=self.redis.SET_IF_NOT_EXIST)
+            if not should_run:
+                await self.redis.set('processing_tx_queue:{}:should_re_run'.format(ethereum_address), 1)
+                return
+            while should_run:
+                await self._process_transaction_queue(ethereum_address)
+                tr = self.redis.multi_exec()
+                fut1 = tr.get('processing_tx_queue:{}:should_re_run'.format(ethereum_address))
+                fut2 = tr.delete('processing_tx_queue:{}:should_re_run'.format(ethereum_address))
+                await tr.execute()
+                should_run = await fut1
+                await fut2
+                if should_run:
+                    # reset tx queue expiry
+                    await self.redis.set('processing_tx_queue:{}'.format(ethereum_address), 1,
+                                         expire=TRANSACTION_PROCESSING_TIMEOUT)
         except:
-            log.exception("Unexpected issue calling process transaction queue")
-        finally:
-            if ADDRESS_PROCESSING_QUEUE[ethereum_address].empty():
-                del ADDRESS_PROCESSING_QUEUE[ethereum_address]
-                # if we didn't process the queue completely
-                # then schedule it again
+            log.exception("Error processing transaction queue for {}".format(ethereum_address))
 
-            else:
-                f = ADDRESS_PROCESSING_QUEUE[ethereum_address].get_nowait()
-                f.set_result(True)
+        await self.redis.delete('processing_tx_queue:{}'.format(ethereum_address))
 
     async def _process_transaction_queue(self, ethereum_address):
 
