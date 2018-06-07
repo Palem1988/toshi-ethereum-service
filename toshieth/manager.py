@@ -470,6 +470,7 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
         if 'gcm' in services or 'apn' in services:
             push_dispatcher.send_notification(address, message)
 
+    @log_unhandled_exceptions(logger=log)
     async def sanity_check(self, frequency):
         async with self.db:
             rows = await self.db.fetch(
@@ -553,16 +554,33 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
 
                 # make sure there are pending incoming transactions
                 async with self.db:
-                    incoming_transactions = await self.db.fetchrow(
-                        "SELECT 1 FROM transactions "
+                    incoming_transactions = await self.db.fetch(
+                        "SELECT * FROM transactions "
                         "WHERE to_address = $1 "
-                        "AND (status = 'unconfirmed' OR status = 'queued')",
+                        "AND (status = 'unconfirmed' OR status = 'queued' OR status = 'new')",
                         ethereum_address)
 
                 if not incoming_transactions:
                     log.error("ERROR: {} has transactions in it's queue, but no unconfirmed transactions!".format(ethereum_address))
                     # trigger queue processing as last resort
                     addresses_to_check.add(ethereum_address)
+                else:
+                    # check health of the incoming transaction
+                    for transaction in incoming_transactions:
+                        if transaction['v'] is None:
+                            try:
+                                tx = await self.eth.eth_getTransactionByHash(transaction['hash'])
+                            except:
+                                log.exception("Error getting transaction {} in sanity check", transaction['hash'])
+                                continue
+                            if tx is None:
+                                log.warning("external transaction (id: {}) no longer found on nodes".format(transaction['transaction_id']))
+                                await self.update_transaction(transaction['transaction_id'], 'error')
+                                addresses_to_check.add(ethereum_address)
+                            elif tx['blockNumber'] is not None:
+                                log.warning("external transaction (id: {}) confirmed on node, but wasn't confirmed in db".format(transaction['transaction_id']))
+                                await self.update_transaction(transaction['transaction_id'], 'confirmed')
+                                addresses_to_check.add(ethereum_address)
 
         if len(old_and_unconfirmed):
             log.warning("WARNING: {} transactions are old and unconfirmed!".format(len(old_and_unconfirmed)))
@@ -575,6 +593,7 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
         if frequency:
             manager_dispatcher.sanity_check(frequency).delay(frequency)
 
+    @log_unhandled_exceptions(logger=log)
     async def update_default_gas_price(self, frequency):
 
         client = AsyncHTTPClient()
