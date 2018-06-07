@@ -156,6 +156,8 @@ class CustomERC20Test(EthServiceBaseTest):
         self.assertResponseCodeEqual(resp, 200)
 
         await monitor.block_check()
+        # small delay to make sure all block processing related things have finished
+        await asyncio.sleep(0.1)
 
         resp = await self.fetch_signed("/token/{}".format(normal_contract.address), method="DELETE", signing_key=TEST_PRIVATE_KEY)
         self.assertResponseCodeEqual(resp, 204)
