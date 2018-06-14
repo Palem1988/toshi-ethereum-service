@@ -126,7 +126,7 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
                     continue
 
                 # make sure the nonce is still valid
-                if nonce != transaction['nonce']:
+                if nonce != transaction['nonce'] and network_nonce != transaction['nonce']:
                     # check if this is an overwrite
                     if transaction['status'] == 'new':
                         async with self.db:
@@ -206,8 +206,11 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
                         log.debug("Not queuing tx '{}' as current gas price would not support it".format(transaction['hash']))
                         # retry this address in a minute
                         manager_dispatcher.process_transaction_queue(ethereum_address).delay(60)
-                        # abort the rest of the processing
-                        transactions_out = []
+                        # abort the rest of the processing after sending PNs for any "new" transactions
+                        while transaction:
+                            if transaction['status'] == 'new':
+                                await self.update_transaction(transaction['transaction_id'], 'queued')
+                            transaction = transactions_out.pop() if transactions_out else None
                         break
 
                     # if so, send the transaction
@@ -252,7 +255,8 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
 
                     # adjust the balance values for checking the other transactions
                     balance -= cost
-                    nonce += 1
+                    if nonce == transaction['nonce']:
+                        nonce += 1
                     continue
                 else:
                     # make sure the pending_balance would support this transaction

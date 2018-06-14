@@ -199,7 +199,10 @@ def requires_task_manager(func=None, pass_manager=False):
                 if asyncio.iscoroutine(f):
                     await f
             finally:
-                await task_manager.shutdown()
+                try:
+                    await task_manager.shutdown()
+                except:
+                    print("WARNING: task manager didn't shutdown cleanly")
 
         return wrapper
 

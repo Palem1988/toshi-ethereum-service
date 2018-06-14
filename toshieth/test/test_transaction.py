@@ -11,7 +11,7 @@ from toshi.test.ethereum.parity import requires_parity, FAUCET_PRIVATE_KEY, FAUC
 from toshi.analytics import encode_id
 from toshi.request import sign_request
 from toshi.ethereum.utils import data_decoder, data_encoder
-from toshi.ethereum.tx import sign_transaction, decode_transaction, signature_from_transaction, encode_transaction, DEFAULT_STARTGAS, DEFAULT_GASPRICE
+from toshi.ethereum.tx import create_transaction, sign_transaction, decode_transaction, signature_from_transaction, encode_transaction, DEFAULT_STARTGAS, DEFAULT_GASPRICE
 from toshi.utils import parse_int
 
 TEST_PRIVATE_KEY = data_decoder("0xe8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35")
@@ -762,3 +762,68 @@ class TransactionTest(EthServiceBaseTest):
 
         resp = await self.fetch("/tx/skel", method="POST", body=body)
         self.assertEqual(resp.code, 200)
+
+    @gen_test(timeout=60)
+    @requires_full_stack(block_monitor=True, manager=True)
+    async def test_transactions_get_queued_in_queue_is_weird(self, *, monitor, manager):
+        """This test reproduces a bug where if there was a transaction with too low a gas price queued,
+        the monitor sanity check would force any further queued transactions with a good gas price and
+        cause the previous transaction to the error state due to the nonce being problematic.
+
+        This tests that even if the queue gets in a weird state like this it still gets resolved correctly
+        """
+
+        gas_price = 50000000000
+        safe_low_gas_price = 40000000000
+        too_low_gas_price = 30000000000
+        assert(gas_price != DEFAULT_GASPRICE)
+        assert(gas_price > safe_low_gas_price)
+        assert(safe_low_gas_price > too_low_gas_price)
+        await self.redis.set("gas_station_standard_gas_price", hex(gas_price))
+        await self.redis.set("gas_station_safelow_gas_price", hex(safe_low_gas_price))
+
+        for nonce, gasprice, value in [(0, too_low_gas_price, 0x1000000000000),
+                                       (1, safe_low_gas_price, 0x2000000000000),
+                                       (2, gas_price, 0x3000000000000)]:
+
+            tx = create_transaction(nonce=0x100000 + nonce, gasprice=gasprice, startgas=DEFAULT_STARTGAS,
+                                    to=TEST_ADDRESS, value=value, network_id=0x42)
+            await self.sign_and_send_tx(FAUCET_PRIVATE_KEY, encode_transaction(tx))
+
+        await asyncio.sleep(0.1)
+
+        async with self.pool.acquire() as con:
+            txs = await con.fetch("SELECT * FROM transactions")
+
+        for tx in txs:
+            self.assertEqual(tx['status'], 'queued')
+
+        # purposefully cause some problems
+        async with self.pool.acquire() as con:
+            txs = await con.fetch("UPDATE transactions SET status = 'unconfirmed' WHERE nonce > $1", 0x100000)
+
+        from toshieth.tasks import manager_dispatcher
+        manager_dispatcher.process_transaction_queue(FAUCET_ADDRESS)
+
+        await asyncio.sleep(0.1)
+
+        async with self.pool.acquire() as con:
+            tx = await con.fetchrow("SELECT * FROM transactions WHERE nonce = $1", 0x100000)
+
+        self.assertEqual(tx['status'], 'queued')
+
+        # fix up gas prices
+        await self.redis.set("gas_station_standard_gas_price", hex(safe_low_gas_price))
+        await self.redis.set("gas_station_safelow_gas_price", hex(too_low_gas_price))
+
+        manager_dispatcher.process_transaction_queue(FAUCET_ADDRESS)
+
+        await self.wait_on_tx_confirmation(tx['hash'])
+
+        async with self.pool.acquire() as con:
+            tx = await con.fetchrow("SELECT * FROM transactions WHERE nonce = $1", 0x100000)
+
+        self.assertEqual(tx['status'], 'confirmed')
+
+        # NOTE: this test will not shutdown the task manger correctly as there is a retry
+        # on the queued transaction set up
