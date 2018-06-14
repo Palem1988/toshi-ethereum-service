@@ -492,7 +492,48 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
 
         for ethereum_address in rows:
 
-            # check on unconfirmed transactions
+            # check on queued transactions
+            async with self.db:
+                queued_transactions = await self.db.fetch(
+                    "SELECT * FROM transactions "
+                    "WHERE from_address = $1 "
+                    "AND (status = 'new' OR status = 'queued') AND v IS NOT NULL",
+                    ethereum_address)
+
+            if queued_transactions:
+                # make sure there are pending incoming transactions
+                async with self.db:
+                    incoming_transactions = await self.db.fetch(
+                        "SELECT * FROM transactions "
+                        "WHERE to_address = $1 "
+                        "AND (status = 'unconfirmed' OR status = 'queued' OR status = 'new')",
+                        ethereum_address)
+
+                if not incoming_transactions:
+                    log.error("ERROR: {} has transactions in it's queue, but no unconfirmed transactions!".format(ethereum_address))
+                    # trigger queue processing as last resort
+                    addresses_to_check.add(ethereum_address)
+                else:
+                    # check health of the incoming transaction
+                    for transaction in incoming_transactions:
+                        if transaction['v'] is None:
+                            try:
+                                tx = await self.eth.eth_getTransactionByHash(transaction['hash'])
+                            except:
+                                log.exception("Error getting transaction {} in sanity check", transaction['hash'])
+                                continue
+                            if tx is None:
+                                log.warning("external transaction (id: {}) no longer found on nodes".format(transaction['transaction_id']))
+                                await self.update_transaction(transaction['transaction_id'], 'error')
+                                addresses_to_check.add(ethereum_address)
+                            elif tx['blockNumber'] is not None:
+                                log.warning("external transaction (id: {}) confirmed on node, but wasn't confirmed in db".format(transaction['transaction_id']))
+                                await self.update_transaction(transaction['transaction_id'], 'confirmed')
+                                addresses_to_check.add(ethereum_address)
+
+                # no need to continue with dealing with unconfirmed transactions if there are queued ones
+                continue
+
             async with self.db:
                 unconfirmed_transactions = await self.db.fetch(
                     "SELECT * FROM transactions "
@@ -500,7 +541,7 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
                     "AND status = 'unconfirmed' AND v IS NOT NULL",
                     ethereum_address)
 
-            if len(unconfirmed_transactions) > 0:
+            if unconfirmed_transactions:
 
                 for transaction in unconfirmed_transactions:
 
@@ -549,38 +590,6 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
                         else:
 
                             old_and_unconfirmed.append(transaction['hash'])
-
-            else:
-
-                # make sure there are pending incoming transactions
-                async with self.db:
-                    incoming_transactions = await self.db.fetch(
-                        "SELECT * FROM transactions "
-                        "WHERE to_address = $1 "
-                        "AND (status = 'unconfirmed' OR status = 'queued' OR status = 'new')",
-                        ethereum_address)
-
-                if not incoming_transactions:
-                    log.error("ERROR: {} has transactions in it's queue, but no unconfirmed transactions!".format(ethereum_address))
-                    # trigger queue processing as last resort
-                    addresses_to_check.add(ethereum_address)
-                else:
-                    # check health of the incoming transaction
-                    for transaction in incoming_transactions:
-                        if transaction['v'] is None:
-                            try:
-                                tx = await self.eth.eth_getTransactionByHash(transaction['hash'])
-                            except:
-                                log.exception("Error getting transaction {} in sanity check", transaction['hash'])
-                                continue
-                            if tx is None:
-                                log.warning("external transaction (id: {}) no longer found on nodes".format(transaction['transaction_id']))
-                                await self.update_transaction(transaction['transaction_id'], 'error')
-                                addresses_to_check.add(ethereum_address)
-                            elif tx['blockNumber'] is not None:
-                                log.warning("external transaction (id: {}) confirmed on node, but wasn't confirmed in db".format(transaction['transaction_id']))
-                                await self.update_transaction(transaction['transaction_id'], 'confirmed')
-                                addresses_to_check.add(ethereum_address)
 
         if len(old_and_unconfirmed):
             log.warning("WARNING: {} transactions are old and unconfirmed!".format(len(old_and_unconfirmed)))
