@@ -240,7 +240,8 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
                         # simply abort for now.
                         # TODO: depending on error, just break and queue to retry later
                         log.error("ERROR sending queued transaction: {}".format(e.format()))
-                        if e.message and e.message.startswith("Transaction nonce is too low"):
+                        if e.message and (e.message.startswith("Transaction nonce is too low") or
+                                          e.message.startswith("Transaction with the same hash was already imported")):
                             existing_tx = await self.eth.eth_getTransactionByHash(transaction['hash'])
                             if existing_tx:
                                 if existing_tx['blockNumber']:
