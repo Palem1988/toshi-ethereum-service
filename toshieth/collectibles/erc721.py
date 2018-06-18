@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from toshi.log import configure_logger
+from toshi.log import configure_logger, log_unhandled_exceptions
 from toshi.config import config
 from toshi.ethereum.utils import data_decoder
 from ethereum.utils import sha3
@@ -37,6 +37,7 @@ class ERC721TaskManager(CollectiblesTaskManager):
         for row in contract_addresses:
             asyncio.get_event_loop().create_task(self.process_block_for_contract(row['contract_address']))
 
+    @log_unhandled_exceptions(logger=log)
     async def process_block_for_contract(self, collectible_address):
         if collectible_address in self._processing and not self._processing[collectible_address].done():
             log.debug("Already processing {}".format(collectible_address))
@@ -139,8 +140,14 @@ class ERC721TaskManager(CollectiblesTaskManager):
                 if token is None:
                     # get token details
                     token_uri = None
-                    token_uri_data = await self.eth.eth_call(to_address=collectible_address, data="{}{:064x}".format(
-                        TOKEN_URI_CALL_DATA, int(token_id, 16)))
+                    while True:
+                        try:
+                            token_uri_data = await self.eth.eth_call(to_address=collectible_address, data="{}{:064x}".format(
+                                TOKEN_URI_CALL_DATA, int(token_id, 16)))
+                            break
+                        except:
+                            continue
+
                     if token_uri_data and token_uri_data != "0x":
                         try:
                             token_uri = decode_abi(['string'], data_decoder(token_uri_data))[0].decode('utf-8', errors='replace')
@@ -207,7 +214,6 @@ class ERC721TaskManager(CollectiblesTaskManager):
 
         ready = collectible['ready'] or to_block_number == latest_block_number
 
-        self.last_block = to_block_number
         async with self.pool.acquire() as con:
             await con.execute("UPDATE collectibles SET last_block = $1, ready = $2 WHERE contract_address = $3",
                               to_block_number, ready, collectible_address)
