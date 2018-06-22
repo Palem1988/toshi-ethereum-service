@@ -56,7 +56,7 @@ class ERC20UpdateHandler(EthereumMixin, BaseTaskHandler):
                 log.info("ABORT update_token_cache(\"*\", {}): {}".format(eth_addresses[0], should_run))
                 return
 
-        client = self.eth.bulk()
+        client = self.eth.bulk(should_retry=False)
         futures = []
         for eth_address in eth_addresses:
             for token in tokens:
@@ -65,7 +65,13 @@ class ERC20UpdateHandler(EthereumMixin, BaseTaskHandler):
                 futures.append((token['contract_address'], eth_address, token['custom'], f))
 
         if len(futures) > 0:
-            await client.execute()
+            should_retry = False
+            try:
+                await client.execute()
+            except:
+                log.exception("Error in http request updating erc20 cache update of '{}' for addresses: {}".format(contract_address, eth_addresses))
+                futures = []
+                should_retry = True
 
             bulk_insert = []
             for token_contract_address, eth_address, custom, f in futures:
@@ -81,13 +87,19 @@ class ERC20UpdateHandler(EthereumMixin, BaseTaskHandler):
                 except JsonRPCError as e:
                     if e.message == "Unknown Block Number" or e.message == "This request is not supported because your node is running with state pruning. Run with --pruning=archive.":
                         # reschedule the update and abort for now
-                        log.info("got unknown block number in erc20 cache update of '{}' for address: {}".format(token_contract_address, eth_address))
-                        if is_wildcard:
-                            # clear up bulk_token_update key, as we want to allow this to run again
-                            await self.redis.delete("bulk_token_update:{}".format(eth_addresses[0]))
-                        erc20_dispatcher.update_token_cache(contract_address, *eth_addresses, blocknumber=blocknumber).delay(RETRY_DELAY)
-                        return
+                        # NOTE: not aborting right away as we should clear out the rest of the future values
+                        if not should_retry:
+                            log.info("got unknown block number in erc20 cache update of '{}' for address: {}".format(token_contract_address, eth_address))
+                            should_retry = True
+                        continue
                     log.exception("WARNING: failed to update token cache of '{}' for address: {}".format(token_contract_address, eth_address))
+
+            if should_retry:
+                if is_wildcard:
+                    # clear up bulk_token_update key, as we want to allow this to run again
+                    await self.redis.delete("bulk_token_update:{}".format(eth_addresses[0]))
+                erc20_dispatcher.update_token_cache(contract_address, *eth_addresses, blocknumber=blocknumber).delay(RETRY_DELAY)
+                return
 
             send_update = False
             if len(bulk_insert) > 0:
