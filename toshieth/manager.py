@@ -330,15 +330,71 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
                 log.info("Updating status of tx {} to {} (previously: {})".format(tx['hash'], status, tx['status']))
 
         if status == 'confirmed':
-            transaction = await self.eth.eth_getTransactionByHash(tx['hash'])
+            try:
+                bulk = self.eth.bulk()
+                transaction = bulk.eth_getTransactionByHash(tx['hash'])
+                tx_receipt = bulk.eth_getTransactionReceipt(tx['hash'])
+                await bulk.execute()
+                transaction = transaction.result()
+                tx_receipt = tx_receipt.result()
+            except:
+                log.exception("Error getting transaction: {}".format(tx['hash']))
+                transaction = None
+                tx_receipt = None
             if transaction and 'blockNumber' in transaction and transaction['blockNumber'] is not None:
                 if retry_start_time > 0:
                     log.info("successfully confirmed tx {} after {} seconds".format(tx['hash'], round(time.time() - retry_start_time, 2)))
+
+                token_tx_updates = []
+                updated_token_txs = []
+                for token_tx in token_txs:
+                    from_address = token_tx['from_address']
+                    to_address = token_tx['to_address']
+                    # check transaction receipt to make sure the transfer was successful
+                    has_transfer_event = False
+                    token_tx_status = 'confirmed'
+                    if tx_receipt['logs'] is not None:  # should always be [], but checking just incase
+                        for _log in tx_receipt['logs']:
+                            if len(_log['topics']) > 2:
+                                if _log['topics'][0] == TRANSFER_TOPIC and \
+                                   decode_single_address(_log['topics'][1]) == from_address and \
+                                   decode_single_address(_log['topics'][2]) == to_address:
+                                    has_transfer_event = True
+                                    break
+                            elif _log['address'] == WETH_CONTRACT_ADDRESS:
+                                if _log['topics'][0] == DEPOSIT_TOPIC and decode_single_address(_log['topics'][1]) == to_address:
+                                    has_transfer_event = True
+                                    break
+                                elif _log['topics'][0] == WITHDRAWAL_TOPIC and decode_single_address(_log['topics'][1]) == from_address:
+                                    has_transfer_event = True
+                                    break
+                        if not has_transfer_event:
+                            # there was no Transfer event matching this transaction, this means something went wrong
+                            token_tx_status = 'error'
+                        else:
+                            erc20_dispatcher.update_token_cache(token_tx['contract_address'],
+                                                                from_address,
+                                                                to_address,
+                                                                blocknumber=parse_int(transaction['blockNumber']))
+                    else:
+                        log.error("Unexpectedly got null for tx receipt logs for tx: {}".format(tx['hash']))
+                        token_tx_status = 'error'
+                    token_tx_updates.append((token_tx_status, tx['transaction_id'], token_tx['transaction_log_index']))
+                    token_tx = dict(token_tx)
+                    token_tx['status'] = token_tx_status
+                    updated_token_txs.append(token_tx)
+
+                token_txs = updated_token_txs
                 blocknumber = parse_int(transaction['blockNumber'])
                 async with self.db:
                     await self.db.execute("UPDATE transactions SET status = $1, blocknumber = $2, updated = (now() AT TIME ZONE 'utc') "
                                           "WHERE transaction_id = $3",
                                           status, blocknumber, transaction_id)
+                    if token_tx_updates:
+                        await self.db.executemany(
+                            "UPDATE token_transactions SET status = $1 "
+                            "WHERE transaction_id = $2 AND transaction_log_index = $3",
+                            token_tx_updates)
                     await self.db.commit()
             else:
                 # this is probably because the node hasn't caught up with the latest block yet, retry in a "bit" (but only retry up to 60 seconds)
@@ -370,43 +426,10 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
 
         # check if this is an erc20 transaction, if so use those values
         if token_txs:
-            if status == 'confirmed':
-                tx_receipt = await self.eth.eth_getTransactionReceipt(tx['hash'])
-                if tx_receipt is None:
-                    log.error("Failed to get transaction receipt for confirmed transaction: {}".format(tx_receipt))
-                    # requeue to try again
-                    manager_dispatcher.update_transaction(transaction_id, status)
-                    return
             for token_tx in token_txs:
-                token_tx_status = status
+                token_tx_status = token_tx['status']
                 from_address = token_tx['from_address']
                 to_address = token_tx['to_address']
-                if status == 'confirmed':
-                    # check transaction receipt to make sure the transfer was successful
-                    has_transfer_event = False
-                    if tx_receipt['logs'] is not None:  # should always be [], but checking just incase
-                        for _log in tx_receipt['logs']:
-                            if len(_log['topics']) > 2:
-                                if _log['topics'][0] == TRANSFER_TOPIC and \
-                                   decode_single_address(_log['topics'][1]) == from_address and \
-                                   decode_single_address(_log['topics'][2]) == to_address:
-                                    has_transfer_event = True
-                                    break
-                            elif _log['address'] == WETH_CONTRACT_ADDRESS:
-                                if _log['topics'][0] == DEPOSIT_TOPIC and decode_single_address(_log['topics'][1]) == to_address:
-                                    has_transfer_event = True
-                                    break
-                                elif _log['topics'][0] == WITHDRAWAL_TOPIC and decode_single_address(_log['topics'][1]) == from_address:
-                                    has_transfer_event = True
-                                    break
-                    if not has_transfer_event:
-                        # there was no Transfer event matching this transaction
-                        token_tx_status = 'error'
-                    else:
-                        erc20_dispatcher.update_token_cache(token_tx['contract_address'],
-                                                            from_address,
-                                                            to_address,
-                                                            blocknumber=parse_int(transaction['blockNumber']))
                 if token_tx_status == 'confirmed':
                     data = {
                         "txHash": tx['hash'],
@@ -417,12 +440,6 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
                         "contractAddress": token_tx['contract_address']
                     }
                     messages.append((from_address, to_address, token_tx_status, "SOFA::TokenPayment: " + json_encode(data)))
-                async with self.db:
-                    await self.db.execute(
-                        "UPDATE token_transactions SET status = $1 "
-                        "WHERE transaction_id = $2 AND transaction_log_index = $3",
-                        token_tx_status, tx['transaction_id'], token_tx['transaction_log_index'])
-                    await self.db.commit()
 
                 # if a WETH deposit or withdrawal, we need to let the client know to
                 # update their ETHER balance using a normal SOFA:Payment
