@@ -430,16 +430,20 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
                 token_tx_status = token_tx['status']
                 from_address = token_tx['from_address']
                 to_address = token_tx['to_address']
-                if token_tx_status == 'confirmed':
-                    data = {
-                        "txHash": tx['hash'],
-                        "fromAddress": from_address,
-                        "toAddress": to_address,
-                        "status": token_tx_status,
-                        "value": token_tx['value'],
-                        "contractAddress": token_tx['contract_address']
-                    }
-                    messages.append((from_address, to_address, token_tx_status, "SOFA::TokenPayment: " + json_encode(data)))
+
+                # TokenPayment PNs are not shown at the moment, so i'm removing
+                # this for the time being until they're required
+
+                # if token_tx_status == 'confirmed':
+                #     data = {
+                #         "txHash": tx['hash'],
+                #         "fromAddress": from_address,
+                #         "toAddress": to_address,
+                #         "status": token_tx_status,
+                #         "value": token_tx['value'],
+                #         "contractAddress": token_tx['contract_address']
+                #     }
+                #     messages.append((from_address, to_address, token_tx_status, "SOFA::TokenPayment: " + json_encode(data)))
 
                 # if a WETH deposit or withdrawal, we need to let the client know to
                 # update their ETHER balance using a normal SOFA:Payment

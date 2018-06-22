@@ -68,8 +68,8 @@ class ERC20UpdateHandler(EthereumMixin, BaseTaskHandler):
             should_retry = False
             try:
                 await client.execute()
-            except:
-                log.exception("Error in http request updating erc20 cache update of '{}' for addresses: {}".format(contract_address, eth_addresses))
+            except Exception as e:
+                log.warning("Error in http request updating erc20 cache update of '{}' for addresses {}: {}".format(contract_address, eth_addresses, e))
                 futures = []
                 should_retry = True
 
@@ -114,21 +114,22 @@ class ERC20UpdateHandler(EthereumMixin, BaseTaskHandler):
                     await self.db.commit()
                     send_update = True
 
-            # wildcard updates usually mean we need to send a refresh trigger to clients
+            # token updates need to send a refresh trigger to clients
             # currently clients only use a TokenPayment as a trigger to refresh their
             # token cache, so we abuse this functionality here
-            if is_wildcard and send_update:
+            if send_update:
                 # lots of fake values so it doesn't get confused with a real tx
-                data = {
-                    "txHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-                    "fromAddress": "0x0000000000000000000000000000000000000000",
-                    "toAddress": eth_addresses[0],
-                    "status": "confirmed",
-                    "value": "0x0",
-                    "contractAddress": "0x0000000000000000000000000000000000000000"
-                }
-                message = "SOFA::TokenPayment: " + json_encode(data)
-                manager_dispatcher.send_notification(eth_addresses[0], message)
+                for eth_address in eth_addresses:
+                    data = {
+                        "txHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                        "fromAddress": "0x0000000000000000000000000000000000000000",
+                        "toAddress": eth_addresses[0],
+                        "status": "confirmed",
+                        "value": "0x0",
+                        "contractAddress": "0x0000000000000000000000000000000000000000"
+                    }
+                    message = "SOFA::TokenPayment: " + json_encode(data)
+                    manager_dispatcher.send_notification(eth_address, message)
         if is_wildcard:
             end_time = time.time()
             log.info("DONE update_token_cache(\"*\", {}) in {}s".format(eth_addresses[0], round(end_time - start_time, 2)))
