@@ -1,0 +1,1 @@
+ALTER TABLE token_balances ADD COLUMN blocknumber INTEGER DEFAULT 0 NOT NULL;

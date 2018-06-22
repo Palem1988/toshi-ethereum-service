@@ -80,6 +80,9 @@ CREATE TABLE IF NOT EXISTS token_balances (
     symbol VARCHAR,
     decimals INTEGER,
 
+    -- blocknumber in which this was last updated
+    blocknumber INTEGER DEFAULT 0 NOT NULL,
+
     visibility INTEGER DEFAULT 1, -- whether to show or hide the token from the balance list
                                   -- 0: never show
                                   -- 1: show if balance is > 0
@@ -197,4 +200,4 @@ CREATE INDEX IF NOT EXISTS idx_token_balance_eth_address_visibility_balance ON t
 
 CREATE INDEX IF NOT EXISTS idx_collectible_transfer_events_collectible_address ON collectible_transfer_events (collectible_address);
 
-UPDATE database_version SET version_number = 21;
+UPDATE database_version SET version_number = 22;

@@ -829,6 +829,11 @@ class ERC20Test(EthServiceBaseTest):
     @requires_full_stack(parity=True, push_client=True, block_monitor=True, erc20_manager=True)
     async def test_token_balance_updates_with_old_nodes(self, *, parity, push_client, monitor, erc20_manager):
         """Tests that if a node is behind in blocks, we retry until the node catches up"""
+
+        # make sure the retry delay is low for faster testing
+        import toshieth.erc20manager
+        toshieth.erc20manager.RETRY_DELAY = 1
+
         contract = await self.deploy_erc20_contract("TST", "Test Token", 18)
         await contract.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 * 10 ** 18)
         await self.faucet(TEST_ADDRESS, 10 ** 18)
@@ -859,6 +864,6 @@ class ERC20Test(EthServiceBaseTest):
             tokens = await con.fetch("SELECT * FROM token_balances WHERE eth_address = $1",
                                      TEST_ADDRESS)
             tokens2 = await con.fetch("SELECT * FROM token_balances WHERE eth_address = $1",
-                                     TEST_ADDRESS_2)
+                                      TEST_ADDRESS_2)
         self.assertEqual(tokens[0]['balance'], hex(5 * 10 ** 18))
         self.assertEqual(tokens2[0]['balance'], hex(5 * 10 ** 18))

@@ -15,6 +15,8 @@ from toshieth.tasks import BaseEthServiceWorker, BaseTaskHandler, manager_dispat
 
 log = logging.getLogger("toshieth.erc20manager")
 
+RETRY_DELAY = 10
+
 class ERC20UpdateHandler(EthereumMixin, BaseTaskHandler):
 
     @log_unhandled_exceptions(logger=log)
@@ -32,7 +34,7 @@ class ERC20UpdateHandler(EthereumMixin, BaseTaskHandler):
             elif blocknumber > last_blocknumber:
                 # don't continue until the block numbers match
                 log.info("request to update erc20 cache before block processor is caught up")
-                erc20_dispatcher.update_token_cache(contract_address, *eth_addresses, blocknumber=blocknumber).delay(1)
+                erc20_dispatcher.update_token_cache(contract_address, *eth_addresses, blocknumber=blocknumber).delay(RETRY_DELAY)
                 return
             if is_wildcard:
                 tokens = await self.db.fetch("SELECT contract_address, custom FROM tokens where custom = FALSE")
@@ -75,15 +77,15 @@ class ERC20UpdateHandler(EthereumMixin, BaseTaskHandler):
                         value = 0
                     else:
                         value = parse_int(value)  # remove hex padding of value
-                    bulk_insert.append((token_contract_address, eth_address, hex(value), 0 if custom else 1))
+                    bulk_insert.append((token_contract_address, eth_address, hex(value), blocknumber, 0 if custom else 1))
                 except JsonRPCError as e:
                     if e.message == "Unknown Block Number" or e.message == "This request is not supported because your node is running with state pruning. Run with --pruning=archive.":
                         # reschedule the update and abort for now
-                        log.info("got unknown block number in erc20 cache update")
+                        log.info("got unknown block number in erc20 cache update of '{}' for address: {}".format(token_contract_address, eth_address))
                         if is_wildcard:
                             # clear up bulk_token_update key, as we want to allow this to run again
                             await self.redis.delete("bulk_token_update:{}".format(eth_addresses[0]))
-                        erc20_dispatcher.update_token_cache(contract_address, *eth_addresses, blocknumber=blocknumber).delay(1)
+                        erc20_dispatcher.update_token_cache(contract_address, *eth_addresses, blocknumber=blocknumber).delay(RETRY_DELAY)
                         return
                     log.exception("WARNING: failed to update token cache of '{}' for address: {}".format(token_contract_address, eth_address))
 
@@ -91,10 +93,11 @@ class ERC20UpdateHandler(EthereumMixin, BaseTaskHandler):
             if len(bulk_insert) > 0:
                 async with self.db:
                     await self.db.executemany(
-                        "INSERT INTO token_balances (contract_address, eth_address, balance, visibility) "
-                        "VALUES ($1, $2, $3, $4) "
+                        "INSERT INTO token_balances (contract_address, eth_address, balance, blocknumber, visibility) "
+                        "VALUES ($1, $2, $3, $4, $5) "
                         "ON CONFLICT (contract_address, eth_address) "
-                        "DO UPDATE SET balance = EXCLUDED.balance",
+                        "DO UPDATE SET balance = EXCLUDED.balance, blocknumber = EXCLUDED.blocknumber "
+                        "WHERE token_balances.blocknumber < EXCLUDED.blocknumber",
                         bulk_insert)
                     await self.db.commit()
                     send_update = True
