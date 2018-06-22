@@ -297,19 +297,19 @@ class WebsocketTest(FaucetMixin, EthServiceBaseTest):
         # expect 5 confirmed payments
         c = 0
         for i in range(0, txs_per_state):
-            self.assertEquals(parse_sofa_message(result[c + i])['status'], 'confirmed')
+            self.assertEqual(parse_sofa_message(result[c + i])['status'], 'confirmed')
 
         # expect 5 txs with both unconfirmed and confirmed
         c += txs_per_state
         for i in range(0, txs_per_state):
-            self.assertEquals(parse_sofa_message(result[c + (i * 2)])['status'], 'unconfirmed')
-            self.assertEquals(parse_sofa_message(result[c + (i * 2) + 1])['status'], 'confirmed')
+            self.assertEqual(parse_sofa_message(result[c + (i * 2)])['status'], 'unconfirmed')
+            self.assertEqual(parse_sofa_message(result[c + (i * 2) + 1])['status'], 'confirmed')
 
         c += txs_per_state * 2
 
         # expect 5 unconfirmed txs
         for i in range(0, txs_per_state):
-            self.assertEquals(parse_sofa_message(result[c + i])['status'], 'unconfirmed')
+            self.assertEqual(parse_sofa_message(result[c + i])['status'], 'unconfirmed')
 
         # make sure there's no more!
         c += txs_per_state

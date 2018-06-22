@@ -69,7 +69,7 @@ class ERC20Test(EthServiceBaseTest):
             await contract.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 ** token['decimals'])
 
             result = await contract.balanceOf(TEST_ADDRESS)
-            self.assertEquals(result, 10 ** token['decimals'])
+            self.assertEqual(result, 10 ** token['decimals'])
 
         # force block check to clear out txs pre registration
         await monitor.block_check()
@@ -146,7 +146,7 @@ class ERC20Test(EthServiceBaseTest):
         await contract.transfer.set_sender(FAUCET_PRIVATE_KEY)(TEST_ADDRESS, 10 * 10 ** 18)
 
         result = await contract.balanceOf(TEST_ADDRESS)
-        self.assertEquals(result, 10 * 10 ** 18)
+        self.assertEqual(result, 10 * 10 ** 18)
 
         # force block check to clear out txs pre registration
         await monitor.block_check()
@@ -221,7 +221,7 @@ class ERC20Test(EthServiceBaseTest):
         await self.faucet(TEST_ADDRESS, 10 ** 18)
 
         result = await contract.balanceOf(TEST_ADDRESS)
-        self.assertEquals(result, 10 * 10 ** 18)
+        self.assertEqual(result, 10 * 10 ** 18)
 
         # force block check to clear out txs pre registration
         await monitor.block_check()
@@ -266,7 +266,7 @@ class ERC20Test(EthServiceBaseTest):
         await self.faucet(TEST_ADDRESS, 10 ** 18)
 
         result = await contract.balanceOf(TEST_ADDRESS)
-        self.assertEquals(result, 10 * 10 ** 18)
+        self.assertEqual(result, 10 * 10 ** 18)
 
         # force block check to clear out txs pre registration
         await monitor.block_check()
@@ -286,9 +286,9 @@ class ERC20Test(EthServiceBaseTest):
         await push_client.get()
 
         result = await contract.balanceOf(TEST_ADDRESS)
-        self.assertEquals(result, 0)
+        self.assertEqual(result, 0)
         result = await contract.balanceOf(TEST_ADDRESS_2)
-        self.assertEquals(result, 10 * 10 ** 18)
+        self.assertEqual(result, 10 * 10 ** 18)
 
     @gen_test(timeout=60)
     @requires_full_stack(parity=True, push_client=True, block_monitor=True)
@@ -300,7 +300,7 @@ class ERC20Test(EthServiceBaseTest):
         await self.faucet(TEST_ADDRESS, 10 ** 18)
 
         result = await contract.balanceOf(TEST_ADDRESS)
-        self.assertEquals(result, 10 * 10 ** 18)
+        self.assertEqual(result, 10 * 10 ** 18)
 
         # force block check to clear out txs pre registration
         await monitor.filter_poll()

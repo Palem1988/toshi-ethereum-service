@@ -75,10 +75,10 @@ class ERC721Test(EthServiceBaseTest):
                 collectible['tokens'][hex(token_id)] = TEST_ADDRESS
 
                 test_uri = await contract.tokenURI(token_id)
-                self.assertEquals(test_uri, uri)
+                self.assertEqual(test_uri, uri)
 
             result = await contract.balanceOf(TEST_ADDRESS)
-            self.assertEquals(result, len(collectible['tokens']))
+            self.assertEqual(result, len(collectible['tokens']))
 
         # force block check to clear out txs pre registration
         await monitor.block_check()
@@ -154,7 +154,7 @@ class ERC721Test(EthServiceBaseTest):
             tokens.append(token_id)
 
         result = await contract.balanceOf(FAUCET_ADDRESS)
-        self.assertEquals(result, len(tokens))
+        self.assertEqual(result, len(tokens))
 
         await monitor.block_check()
         # note: giving 0.5 otherwise this test randomly fails
