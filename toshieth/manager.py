@@ -20,6 +20,7 @@ from toshi.ethereum.tx import (
     create_transaction, encode_transaction, calculate_transaction_hash
 )
 from toshi.ethereum.utils import data_decoder, data_encoder, decode_single_address
+from ethereum.abi import decode_abi
 
 from toshieth.constants import TRANSFER_TOPIC, DEPOSIT_TOPIC, WITHDRAWAL_TOPIC, WETH_CONTRACT_ADDRESS
 from toshi.config import config
@@ -355,12 +356,19 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
                     token_tx_status = 'confirmed'
                     if tx_receipt['logs'] is not None:  # should always be [], but checking just incase
                         for _log in tx_receipt['logs']:
-                            if len(_log['topics']) > 2:
-                                if _log['topics'][0] == TRANSFER_TOPIC and \
+                            if len(_log['topics']) > 0 and _log['topics'][0] == TRANSFER_TOPIC:
+                                if len(_log['topics']) == 3 and len(_log['data']) == 66 and \
                                    decode_single_address(_log['topics'][1]) == from_address and \
                                    decode_single_address(_log['topics'][2]) == to_address:
                                     has_transfer_event = True
                                     break
+                                elif len(_log['topics']) == 1 and len(_log['data']) == 194:
+                                    erc20_from_address, erc20_to_address, erc20_value = decode_abi(
+                                        ['address', 'address', 'uint256'], data_decoder(_log['data']))
+                                    if erc20_from_address == from_address and \
+                                       erc20_to_address == to_address:
+                                        has_transfer_event = True
+                                        break
                             elif _log['address'] == WETH_CONTRACT_ADDRESS:
                                 if _log['topics'][0] == DEPOSIT_TOPIC and decode_single_address(_log['topics'][1]) == to_address:
                                     has_transfer_event = True

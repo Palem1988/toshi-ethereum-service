@@ -477,18 +477,23 @@ class BlockMonitor:
                             is_known_token = await con.fetchval("SELECT 1 FROM tokens WHERE contract_address = $1", _log['address'])
                             if not is_known_token:
                                 continue
-                            if len(_log['topics']) < 3 or len(_log['data']) != 66:
+                            if len(_log['topics']) == 3 and len(_log['data']) == 66:
+                                # standard erc20 structure
+                                erc20_from_address = decode_single(('address', '', []), data_decoder(_log['topics'][1]))
+                                erc20_to_address = decode_single(('address', '', []), data_decoder(_log['topics'][2]))
+                                erc20_value = decode_abi(['uint256'], data_decoder(_log['data']))[0]
+                            elif len(_log['topics']) == 1 and len(_log['data']) == 194:
+                                # non-indexed style Transfer events
+                                erc20_from_address, erc20_to_address, erc20_value = decode_abi(
+                                    ['address', 'address', 'uint256'], data_decoder(_log['data']))
+                            else:
                                 log.warning('Got invalid erc20 Transfer event in tx: {}'.format(transaction['hash']))
                                 continue
-                            erc20_from_address = decode_single(('address', '', []), data_decoder(_log['topics'][1]))
-                            erc20_to_address = decode_single(('address', '', []), data_decoder(_log['topics'][2]))
                             erc20_is_interesting = await con.fetchval(
                                 "SELECT 1 FROM token_registrations "
                                 "WHERE eth_address = $1 OR eth_address = $2",
                                 erc20_from_address, erc20_to_address)
                             if erc20_is_interesting:
-                                erc20_value = decode_abi(['uint256'], data_decoder(_log['data']))[0]
-
                                 erc20_transfers.append((_log['address'], int(_log['transactionLogIndex'], 16), erc20_from_address, erc20_to_address, hex(erc20_value), 'confirmed'))
 
                         # special checks for WETH, since it's rarely 'Transfer'ed, but we
