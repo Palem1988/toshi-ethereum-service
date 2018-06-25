@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from ethereum.abi import decode_abi, decode_single
 from toshi.jsonrpc.client import JsonRPCClient
 from toshi.jsonrpc.errors import JsonRPCError, HTTPError
@@ -83,9 +84,12 @@ class BlockMonitor:
         self.pool = await prepare_database(handle_migration=False)
         await prepare_redis()
 
-        # check what the last block number checked was last time this was started
         async with self.pool.acquire() as con:
-            row = await con.fetchrow("SELECT blocknumber FROM last_blocknumber")
+            # check for the last non stale block processed
+            row = await con.fetchrow("SELECT blocknumber FROM blocks WHERE stale = FALSE ORDER BY blocknumber DESC LIMIT 1")
+            if row is None:
+                # fall back on old last_blocknumber
+                row = await con.fetchrow("SELECT blocknumber FROM last_blocknumber")
         if row is None:
             # if there was no previous start, get the current block number
             # and start from there
@@ -178,6 +182,37 @@ class BlockMonitor:
                     if len(self._blocktimes) > 0:
                         log.info("Average processing time per last {} blocks: {}".format(len(self._blocktimes), sum(self._blocktimes) / len(self._blocktimes)))
 
+                # check for reorg
+
+                async with self.pool.acquire() as con:
+                    last_block = await con.fetchrow("SELECT * FROM blocks WHERE blocknumber = $1", self.last_block_number)
+                # if we don't have the previous block, do a quick sanity check to see if there's any blocks lower
+                if last_block is None:
+                    async with self.pool.acquire() as con:
+                        last_block_number = await con.fetchval(
+                            "SELECT blocknumber FROM blocks "
+                            "WHERE blocknumber < $1 "
+                            "ORDER BY blocknumber DESC LIMIT 1",
+                            self.last_block_number)
+                    if last_block_number:
+                        log.warning("found gap in blocks @ block number: #{}".format(last_block_number + 1))
+                        # roll back to the last block number and sync up
+                        self.last_block_number = last_block_number
+                        continue
+                else:
+                    # make sure hash of the last block is the same as the current hash's parent block
+                    if last_block['hash'] != block['parentHash']:
+                        # we have a reorg!
+                        success = await self.handle_reorg()
+                        if success:
+                            continue
+                        # if we didn't find a reorg point, continue on as normal to avoid
+                        # preventing the system from operating as a whole
+
+                # check if we're reorging
+                async with self.pool.acquire() as con:
+                    is_reorg = await con.fetchval("SELECT 1 FROM blocks WHERE blocknumber = $1", self.last_block_number + 1)
+
                 if block['logsBloom'] != "0x" + ("0" * 512):
                     try:
                         logs_list = await self.eth.eth_getLogs(fromBlock=block['number'],
@@ -201,7 +236,7 @@ class BlockMonitor:
                     if tx['hash'] in logs:
                         tx['logs'] = logs[tx['hash']]
                     process_tx_tasks.append(
-                        asyncio.get_event_loop().create_task(self.process_transaction(tx)))
+                        asyncio.get_event_loop().create_task(self.process_transaction(tx, is_reorg=is_reorg)))
                 await asyncio.gather(*process_tx_tasks)
 
                 if logs_list:
@@ -221,10 +256,18 @@ class BlockMonitor:
                 block_number = parse_int(block['number'])
                 if self.last_block_number < block_number:
                     self.last_block_number = block_number
-                    async with self.pool.acquire() as con:
-                        await con.execute("UPDATE last_blocknumber SET blocknumber = $1 "
-                                          "WHERE blocknumber < $1",
-                                          block_number)
+
+                async with self.pool.acquire() as con:
+                    await con.execute("UPDATE last_blocknumber SET blocknumber = $1 "
+                                      "WHERE blocknumber < $1",
+                                      block_number)
+                    await con.execute("INSERT INTO blocks (blocknumber, timestamp, hash, parent_hash) "
+                                      "VALUES ($1, $2, $3, $4) "
+                                      "ON CONFLICT (blocknumber) DO UPDATE "
+                                      "SET timestamp = EXCLUDED.timestamp, hash = EXCLUDED.hash, "
+                                      "parent_hash = EXCLUDED.parent_hash, stale = FALSE",
+                                      block_number, parse_int(block['timestamp']) or int(time.time()),
+                                      block['hash'], block['parentHash'])
 
                 collectibles_dispatcher.notify_new_block(block_number)
                 processing_end_time = asyncio.get_event_loop().time()
@@ -354,7 +397,7 @@ class BlockMonitor:
         self._process_unconfirmed_transactions_process = None
 
     @log_unhandled_exceptions(logger=log)
-    async def process_transaction(self, transaction):
+    async def process_transaction(self, transaction, is_reorg=False):
 
         to_address = transaction['to']
         # make sure we use a valid encoding of "empty" for contract deployments
@@ -403,6 +446,21 @@ class BlockMonitor:
 
                 manager_dispatcher.update_transaction(db_tx['transaction_id'], 'error')
                 db_tx = None
+
+            # if reorg, and the transaction is confirmed, just update which block it was included in
+            if is_reorg and db_tx and db_tx['hash'] == transaction['hash'] and db_tx['status'] == 'confirmed':
+                if transaction['blockNumber'] is None:
+                    log.error("Unexpectedly got unconfirmed transaction again after reorg. hash: {}".format(db_tx['hash']))
+                    # this shouldn't really happen. going to log and abort
+                    return db_tx['transaction_id']
+                new_blocknumber = parse_int(transaction['blockNumber'])
+                if new_blocknumber != db_tx['blocknumber']:
+                    async with self.pool.acquire() as con:
+                        await con.execute(
+                            "UPDATE transactions SET blocknumber = $1 "
+                            "WHERE transaction_id = $2",
+                            new_blocknumber, db_tx['transaction_id'])
+                return db_tx['transaction_id']
 
             # check for erc20 transfers
             erc20_transfers = []
@@ -532,6 +590,70 @@ class BlockMonitor:
                 db_tx['transaction_id'],
                 'confirmed' if transaction['blockNumber'] is not None else 'unconfirmed')
             return db_tx['transaction_id']
+
+    @log_unhandled_exceptions(logger=log)
+    async def handle_reorg(self):
+        log.info("REORG encounterd at block #{}".format(self.last_block_number))
+        blocknumber = self.last_block_number
+        forked_at_blocknumber = None
+        BLOCKS_PER_ITERATION = 10
+        while True:
+            bulk = self.eth.bulk()
+            for i in range(BLOCKS_PER_ITERATION):
+                if blocknumber - i >= 0:
+                    bulk.eth_getBlockByNumber(blocknumber - i, with_transactions=True)
+            node_results = await bulk.execute()
+            async with self.pool.acquire() as con:
+                db_results = await con.fetch("SELECT * FROM blocks WHERE blocknumber <= $1 ORDER BY blocknumber DESC LIMIT $2",
+                                             blocknumber, BLOCKS_PER_ITERATION)
+            while node_results:
+                node_block = node_results[0]
+                db_block = None
+                while db_results:
+                    db_block = db_results[0]
+                    if parse_int(node_block['number']) != db_block['blocknumber']:
+                        log.error("Got out of order blocks when handling reorg: expected: {}, got: {}".format(
+                            parse_int(node_block['number']), db_block['blocknumber']))
+                        db_results = db_results[1:]
+                    else:
+                        break
+                if db_block is None:
+                    # we don't know about any more blocks, so we can just reorg the whole thing!
+                    break
+
+                if node_block['hash'] == db_block['hash']:
+                    log.info("FORK found at block #{}".format(db_block['blocknumber']))
+                    forked_at_blocknumber = db_block['blocknumber']
+                    break
+
+                log.info("Mismatched block #{}. old: {}, new: {}".format(
+                    db_block['blocknumber'], db_block['hash'], node_block['hash']))
+
+                node_results = node_results[1:]
+                db_results = db_results[1:]
+
+            if forked_at_blocknumber is not None:
+                break
+
+            blocknumber = blocknumber - BLOCKS_PER_ITERATION
+            # if the blocknumber goes too low, abort finding the reorg
+            if blocknumber <= 0 or blocknumber < self.last_block_number - 1000:
+                log.error("UNABLE TO FIND FORK POINT FOR REORG")
+                return False
+
+        if forked_at_blocknumber is None:
+            log.error("Error: unexpectedly broke from reorg point finding loop")
+            return False
+
+        # mark blocks as stale
+        async with self.pool.acquire() as con:
+            await con.execute("UPDATE blocks SET stale = TRUE WHERE blocknumber > $1",
+                              forked_at_blocknumber)
+
+        # update token balances
+
+        self.last_block_number = forked_at_blocknumber
+        return True
 
     def run_sanity_check(self):
         self._sanity_check_process = asyncio.get_event_loop().create_task(self.sanity_check())

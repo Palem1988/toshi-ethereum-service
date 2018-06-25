@@ -94,10 +94,10 @@ class EthServiceBaseTest(AsyncHandlerTest):
         tx = sign_transaction(tx, from_key)
         return await self.send_raw_tx(tx, expected_response_code=expected_response_code, wait_on_tx_confirmation=wait_on_tx_confirmation)
 
-    async def send_tx(self, from_key, to_addr, val, nonce=None, data=None, gas=None, gas_price=None, token_address=None):
+    async def send_tx(self, from_key, to_addr, val, nonce=None, data=None, gas=None, gas_price=None, token_address=None, wait_on_tx_confirmation=False):
 
         tx = await self.get_tx_skel(from_key, to_addr, val, nonce=nonce, data=data, gas=gas, gas_price=gas_price, token_address=token_address)
-        return await self.sign_and_send_tx(from_key, tx)
+        return await self.sign_and_send_tx(from_key, tx, wait_on_tx_confirmation=wait_on_tx_confirmation)
 
     async def send_raw_tx(self, tx, wait_on_tx_confirmation=True, expected_response_code=200):
         resp = await self.fetch("/tx", method="POST", body={"tx": tx})

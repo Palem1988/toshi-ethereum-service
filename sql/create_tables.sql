@@ -33,6 +33,15 @@ CREATE TABLE IF NOT EXISTS transactions (
     sender_toshi_id VARCHAR
 );
 
+CREATE TABLE blocks (
+    blocknumber BIGINT PRIMARY KEY,
+    timestamp BIGINT NOT NULL,
+    hash VARCHAR NOT NULL,
+    parent_hash VARCHAR NOT NULL,
+    stale BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+
 CREATE TABLE IF NOT EXISTS notification_registrations (
     toshi_id VARCHAR,
     service VARCHAR,
@@ -183,6 +192,9 @@ CREATE INDEX IF NOT EXISTS idx_transactions_from_address_updated ON transactions
 CREATE INDEX IF NOT EXISTS idx_transactions_to_address_updated ON transactions (to_address, updated NULLS FIRST);
 CREATE INDEX IF NOT EXISTS idx_transactions_from_address_nonce ON transactions (from_address, nonce DESC);
 
+CREATE INDEX IF NOT EXISTS idx_transactions_from_address_status_blocknumber_desc ON transactions (from_address, status, blocknumber DESC NULLS FIRST);
+CREATE INDEX IF NOT EXISTS idx_transactions_to_address_status_blocknumber_desc ON transactions (to_address, status, blocknumber DESC NULLS FIRST);
+
 CREATE INDEX IF NOT EXISTS idx_notification_registrations_eth_address ON notification_registrations (eth_address);
 
 CREATE INDEX IF NOT EXISTS idx_transactions_status_v_created ON transactions (status NULLS FIRST, v NULLS LAST, created DESC);
@@ -200,4 +212,8 @@ CREATE INDEX IF NOT EXISTS idx_token_balance_eth_address_visibility_balance ON t
 
 CREATE INDEX IF NOT EXISTS idx_collectible_transfer_events_collectible_address ON collectible_transfer_events (collectible_address);
 
-UPDATE database_version SET version_number = 22;
+CREATE INDEX IF NOT EXISTS idx_block_blocknumber_desc ON blocks (blocknumber DESC);
+CREATE INDEX IF NOT EXISTS idx_block_hash ON blocks (hash);
+CREATE INDEX IF NOT EXISTS idx_block_parent_hash ON blocks (parent_hash);
+
+UPDATE database_version SET version_number = 23;
