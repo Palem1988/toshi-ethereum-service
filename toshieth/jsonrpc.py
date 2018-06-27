@@ -114,7 +114,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
             return nw_nonce
 
     @map_jsonrpc_arguments({'from': 'from_address', 'to': 'to_address'})
-    async def create_transaction_skeleton(self, *, to_address, from_address, value=0, nonce=None, gas=None, gas_price=None, data=None, token_address=None):
+    async def create_transaction_skeleton(self, *, to_address, from_address, value=0, nonce=None, gas=None, gas_price=None, data=None, network_id=None, token_address=None):
 
         # strip begining and trailing whitespace from addresses
         if to_address is not None and isinstance(to_address, str):
@@ -135,6 +135,24 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
 
         if to_address is not None and to_address != to_address.lower() and not checksum_validate_address(to_address):
             raise JsonRPCInvalidParamsError(data={'id': 'invalid_to_address', 'message': 'Invalid To Address Checksum'})
+
+        # make sure if the network id is set that it matches the current network id
+        # NOTE: this is only meant as a sanity check, to make sure clients abort
+        # early if they think they're creating a request on a different network
+        if network_id:
+            log.info("NETWORK ID USED: {} ({})".format(network_id, type(network_id)))
+            if type(network_id) == str:
+                try:
+                    network_id = int(network_id)
+                except ValueError:
+                    raise JsonRPCInvalidParamsError(data={'id': 'invalid_network_id', 'message': 'Invalid Network Id'})
+            elif type(network_id) != int:
+                raise JsonRPCInvalidParamsError(data={'id': 'invalid_network_id', 'message': 'Invalid Network Id'})
+
+            if network_id != self.network_id:
+                raise JsonRPCInvalidParamsError(data={
+                    'id': 'invalid_network_id',
+                    'message': 'Network ID does not match. expected: {}'.format(self.network_id)})
 
         # check if we should ignore the given gasprice
         # NOTE: only meant to be here while cryptokitty fever is pushing

@@ -197,6 +197,14 @@ class TransactionSkeletonHandler(RedisMixin, BaseHandler):
                 self.json['gas_price'] = self.json.pop('gasprice')
             if 'startgas' in self.json:
                 self.json['gas'] = self.json.pop('startgas')
+            if 'gasLimit' in self.json:
+                self.json['gas'] = self.json.pop('gasLimit')
+            if 'networkId' in self.json:
+                self.json['network_id'] = self.json.pop('networkId')
+            if 'chainId' in self.json:
+                self.json['network_id'] = self.json.pop('chainId')
+            if 'chain_id' in self.json:
+                self.json['network_id'] = self.json.pop('chain_id')
             result = await ToshiEthJsonRPC(None, self.application, self.request).create_transaction_skeleton(**self.json)
         except JsonRPCError as e:
             log.warning("/tx/skel failed: " + json_encode(e.data) + "\" -> arguments: " + json_encode(self.json) + "\"")
