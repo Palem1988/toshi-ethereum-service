@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS tokens (
     symbol VARCHAR, -- currency symbol
     name VARCHAR, -- verbose name
     decimals INTEGER, -- currency decimal points
+    icon_url VARCHAR,
     icon BYTEA, -- png data
     hash VARCHAR,
     format VARCHAR,
@@ -216,4 +217,4 @@ CREATE INDEX IF NOT EXISTS idx_block_blocknumber_desc ON blocks (blocknumber DES
 CREATE INDEX IF NOT EXISTS idx_block_hash ON blocks (hash);
 CREATE INDEX IF NOT EXISTS idx_block_parent_hash ON blocks (parent_hash);
 
-UPDATE database_version SET version_number = 23;
+UPDATE database_version SET version_number = 24;

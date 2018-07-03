@@ -1,0 +1,1 @@
+ALTER TABLE tokens ADD COLUMN icon_url VARCHAR;

@@ -55,7 +55,7 @@ class TokenListHandler(DatabaseMixin, BaseHandler):
         results = []
         for offset in range(0, count, limit):
             async with self.db:
-                rows = await self.db.fetch("SELECT symbol, name, contract_address, decimals, format FROM tokens OFFSET $1 LIMIT $2", offset, limit)
+                rows = await self.db.fetch("SELECT symbol, name, contract_address, decimals, icon_url, format FROM tokens OFFSET $1 LIMIT $2", offset, limit)
             for row in rows:
                 token = {
                     'symbol': row['symbol'],
@@ -63,7 +63,9 @@ class TokenListHandler(DatabaseMixin, BaseHandler):
                     'contract_address': row['contract_address'],
                     'decimals': row['decimals']
                 }
-                if row['format'] is not None:
+                if row['icon_url'] is not None:
+                    token['icon'] = row['icon_url']
+                elif row['format'] is not None:
                     token['icon'] = "{}://{}/token/{}.{}".format(self.request.protocol, self.request.host,
                                                                  token['contract_address'], row['format'])
                 else:

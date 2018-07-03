@@ -75,11 +75,47 @@ class TokenHandlerTest(AsyncHandlerTest):
 
     @gen_test
     @requires_database
+    async def test_tokens_with_icon_url(self):
+
+        url = 'https://toshi.org/sometoken.png'
+
+        async with self.pool.acquire() as con:
+            await con.execute(
+                "INSERT INTO tokens "
+                "(contract_address, symbol, name, decimals, icon_url) "
+                "VALUES ($1, $2, $3, $4, $5)",
+                "0x1111111111111111111111111111111111111111", "ABC", "Awesome Balls Currency Token", 18, url
+            )
+            await con.execute(
+                "INSERT INTO tokens "
+                "(contract_address, symbol, name, decimals) "
+                "VALUES ($1, $2, $3, $4)",
+                "0x2222222222222222222222222222222222222222", "YAC", "Yet Another Currency Token", 2
+            )
+
+        resp = await self.fetch(
+            "/tokens", method="GET"
+        )
+
+        self.assertResponseCodeEqual(resp, 200)
+        body = json_decode(resp.body)
+        self.assertEqual(len(body['tokens']), 2)
+
+        for token in body['tokens']:
+            if token['symbol'] == "YAC":
+                self.assertIsNone(token['icon'])
+            else:
+                self.assertEqual(token['icon'], url)
+
+    @gen_test
+    @requires_database
     async def test_token_balances(self):
         image = blockies.create(TEST_ADDRESS, size=8, scale=12)
         hasher = hashlib.md5()
         hasher.update(image)
         hash = hasher.hexdigest()
+
+        url = 'https://toshi.org/sometoken.png'
 
         async with self.pool.acquire() as con:
             await con.execute(
@@ -90,9 +126,9 @@ class TokenHandlerTest(AsyncHandlerTest):
             )
             await con.execute(
                 "INSERT INTO tokens "
-                "(contract_address, symbol, name, decimals) "
-                "VALUES ($1, $2, $3, $4)",
-                "0x2222222222222222222222222222222222222222", "YAC", "Yet Another Currency Token", 2
+                "(contract_address, symbol, name, decimals, icon_url) "
+                "VALUES ($1, $2, $3, $4, $5)",
+                "0x2222222222222222222222222222222222222222", "YAC", "Yet Another Currency Token", 2, url
             )
             await con.executemany(
                 "INSERT INTO token_balances "
@@ -124,7 +160,7 @@ class TokenHandlerTest(AsyncHandlerTest):
             if token['symbol'] == "YAC":
                 self.assertEqual(single['value'], hex(10 ** 18))
                 self.assertEqual(token['value'], hex(10 ** 18))
-                self.assertIsNone(icon_url)
+                self.assertEqual(icon_url, url)
             else:
                 self.assertEqual(single['value'], hex(2 * 10 ** 18))
                 self.assertEqual(token['value'], hex(2 * 10 ** 18))

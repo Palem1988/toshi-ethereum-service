@@ -560,7 +560,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
         if token_address:
             async with self.db:
                 token = await self.db.fetchrow(
-                    "SELECT symbol, name, decimals, format, custom "
+                    "SELECT symbol, name, decimals, icon_url, format, custom "
                     "FROM tokens WHERE contract_address = $1",
                     token_address)
                 if token is None:
@@ -575,6 +575,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
                             'name': custom_token['name'],
                             'symbol': custom_token['symbol'],
                             'decimals': custom_token['decimals'],
+                            'icon_url': None,
                             'format': token['format']
                         }
                 balance = await self.db.fetchval(
@@ -592,7 +593,9 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
                 "balance": balance,
                 "contract_address": token_address
             }
-            if token['format'] is not None:
+            if token['icon_url'] is not None:
+                details["icon"] = token['icon_url']
+            elif token['format'] is not None:
                 details["icon"] = "{}://{}/token/{}.{}".format(
                     self.request.protocol, self.request.host, token_address, token['format'])
             else:
@@ -601,7 +604,8 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
         else:
             async with self.db:
                 balances = await self.db.fetch(
-                    "SELECT COALESCE(b.symbol, t.symbol) AS symbol, COALESCE(b.name, t.name) AS name, COALESCE(b.decimals, t.decimals) AS decimals, b.balance, b.contract_address, t.format "
+                    "SELECT COALESCE(b.symbol, t.symbol) AS symbol, COALESCE(b.name, t.name) AS name, COALESCE(b.decimals, t.decimals) AS decimals, "
+                    "b.balance, b.contract_address, t.icon_url, t.format "
                     "FROM token_balances b "
                     "JOIN tokens t "
                     "ON t.contract_address = b.contract_address "
@@ -620,8 +624,10 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
                     "balance": b['balance'],
                     "contract_address": b['contract_address']
                 }
-                if b['format'] is not None:
-                    details["icon"] = "{}://{}/token/{}.{}".format(
+                if b['icon_url'] is not None:
+                    details['icon'] = b['icon_url']
+                elif b['format'] is not None:
+                    details['icon'] = "{}://{}/token/{}.{}".format(
                         self.request.protocol, self.request.host, b['contract_address'], b['format'])
                 else:
                     details['icon'] = None
@@ -641,7 +647,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
 
         async with self.db:
             row = await self.db.fetchrow(
-                "SELECT symbol, name, contract_address, decimals, format FROM tokens WHERE contract_address = $1",
+                "SELECT symbol, name, contract_address, decimals, icon_url, format FROM tokens WHERE contract_address = $1",
                 contract_address)
 
         if row:
@@ -665,7 +671,9 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
                         # strip 0 padding
                         balance = hex(int(balance, 16))
                 token['balance'] = balance
-            if row['format'] is not None:
+            if row['icon_url'] is not None:
+                token['icon'] = row['icon_url']
+            elif row['format'] is not None:
                 token['icon'] = "{}://{}/token/{}.{}".format(self.request.protocol, self.request.host,
                                                              token['contract_address'], row['format'])
             else:
