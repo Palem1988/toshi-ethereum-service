@@ -55,3 +55,13 @@ def unwrap_or(future, default):
         raise
     except:
         return default
+
+def get_transaction_log_index(_log):
+    # parity
+    if 'transactionLogIndex' in _log:
+        return int(_log['transactionLogIndex'], 16)
+    # geth
+    elif 'logIndex' in _log:
+        return int(_log['logIndex'], 16)
+    else:
+        return None

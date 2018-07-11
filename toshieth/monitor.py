@@ -14,6 +14,7 @@ from toshi.utils import parse_int
 from toshi.ethereum.utils import data_decoder
 
 from .constants import TRANSFER_TOPIC, DEPOSIT_TOPIC, WITHDRAWAL_TOPIC, WETH_CONTRACT_ADDRESS
+from .utils import get_transaction_log_index
 
 DEFAULT_BLOCK_CHECK_DELAY = 0
 DEFAULT_POLL_DELAY = 1
@@ -494,7 +495,7 @@ class BlockMonitor:
                                 "WHERE eth_address = $1 OR eth_address = $2",
                                 erc20_from_address, erc20_to_address)
                             if erc20_is_interesting:
-                                erc20_transfers.append((_log['address'], int(_log['transactionLogIndex'], 16), erc20_from_address, erc20_to_address, hex(erc20_value), 'confirmed'))
+                                erc20_transfers.append((_log['address'], get_transaction_log_index(_log), erc20_from_address, erc20_to_address, hex(erc20_value), 'confirmed'))
 
                         # special checks for WETH, since it's rarely 'Transfer'ed, but we
                         # still need to update it
@@ -512,7 +513,7 @@ class BlockMonitor:
                                 else:
                                     erc20_to_address = "0x0000000000000000000000000000000000000000"
                                     erc20_from_address = eth_address
-                                erc20_transfers.append((WETH_CONTRACT_ADDRESS, int(_log['transactionLogIndex'], 16), erc20_from_address, erc20_to_address, hex(erc20_value), 'confirmed'))
+                                erc20_transfers.append((WETH_CONTRACT_ADDRESS, get_transaction_log_index(_log), erc20_from_address, erc20_to_address, hex(erc20_value), 'confirmed'))
 
             elif transaction['blockNumber'] is None and db_tx is None:
                 # transaction is pending, attempt to guess if this is a token
