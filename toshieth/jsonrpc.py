@@ -169,11 +169,13 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
 
         if gas_price is None:
             # try and use cached gas station gas price
-            gas_station_gas_price = await self.redis.get('gas_station_standard_gas_price')
+            gas_station_gas_price = await self.redis.get('gas_station_fast_gas_price')
             if gas_station_gas_price:
                 gas_price = parse_int(gas_station_gas_price)
             if gas_price is None:
-                gas_price = config['ethereum'].getint('default_gasprice', DEFAULT_GASPRICE)
+                gas_price = await self.eth.eth_gasPrice()
+                if gas_price is None:
+                    gas_price = config['ethereum'].getint('default_gasprice', DEFAULT_GASPRICE)
         else:
             gas_price = parse_int(gas_price)
             if gas_price is None:

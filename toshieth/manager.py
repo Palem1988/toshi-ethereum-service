@@ -12,6 +12,7 @@ from toshieth.tasks import (
     manager_dispatcher, erc20_dispatcher, eth_dispatcher, push_dispatcher
 )
 from toshi.ethereum.mixin import EthereumMixin
+from toshi.jsonrpc.client import JsonRPCClient
 from toshi.jsonrpc.errors import JsonRPCError
 from toshi.log import configure_logger, log_unhandled_exceptions
 from toshi.utils import parse_int
@@ -637,46 +638,91 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
             manager_dispatcher.sanity_check(frequency).delay(frequency)
 
     @log_unhandled_exceptions(logger=log)
-    async def update_default_gas_price(self, frequency):
+    async def update_default_gas_price(self, blocknumber):
+
 
         client = AsyncHTTPClient()
+        fast_wei = None
+        standard_wei = None
+        safelow_wei = None
+        eth_gasprice = None
+
+        # only needed on mainnet
+        if config['ethereum']['network_id'] == '1':
+
+            try:
+                resp = await client.fetch("https://ethgasstation.info/json/ethgasAPI.json")
+                rval = json_decode(resp.body)
+
+                if 'fast' not in rval:
+                    log.error("Unexpected results from EthGasStation: {}".format(resp.body))
+                elif not isinstance(rval['fast'], (int, float)):
+                    log.error("Unexpected 'average' gas price returned by EthGasStation: {}".format(rval['fast']))
+                else:
+                    gwei_x1000 = int(rval['fast'] * 100)
+                    fast_wei = gwei_x1000 * 1000000
+
+                if 'average' not in rval:
+                    log.error("Unexpected results from EthGasStation: {}".format(resp.body))
+                elif not isinstance(rval['average'], (int, float)):
+                    log.error("Unexpected 'average' gas price returned by EthGasStation: {}".format(rval['average']))
+                else:
+                    gwei_x1000 = int(rval['average'] * 100)
+                    standard_wei = gwei_x1000 * 1000000
+
+                if 'safeLow' not in rval:
+                    log.error("Unexpected results from EthGasStation: {}".format(resp.body))
+                elif not isinstance(rval['safeLow'], (int, float)):
+                    log.error("Unexpected 'safeLow' gas price returned by EthGasStation: {}".format(rval['safeLow']))
+                else:
+                    gwei_x1000 = int(rval['safeLow'] * 100)
+                    safelow_wei = gwei_x1000 * 1000000
+
+                # sanity check the values, if safelow is greater than standard
+                # then use the safe low as standard + an extra gwei of padding
+                if safelow_wei > standard_wei:
+                    standard_wei = safelow_wei + 1000000000
+
+                safelow_wei = hex(safelow_wei)
+                standard_wei = hex(standard_wei)
+                fast_wei = hex(fast_wei)
+
+                await self.redis.mset(
+                    'gas_station_safelow_gas_price', safelow_wei,
+                    'gas_station_standard_gas_price', standard_wei,
+                    'gas_station_fast_gas_price', fast_wei)
+
+            except:
+                log.exception("Error updating default gas price from EthGasStation")
+
         try:
-            resp = await client.fetch("https://ethgasstation.info/json/ethgasAPI.json")
-            rval = json_decode(resp.body)
-
-            standard_wei = None
-            safelow_wei = None
-
-            if 'average' not in rval:
-                log.error("Unexpected results from EthGasStation: {}".format(resp.body))
-            elif not isinstance(rval['average'], float):
-                log.error("Unexpected 'average' gas price returned by EthGasStation: {}".format(rval['average']))
+            # use the monitor url if available
+            if 'monitor' in config:
+                node_url = config['monitor']['url']
             else:
-                gwei_x10 = int(rval['average'])
-                standard_wei = gwei_x10 * 100000000
-
-            if 'safeLow' not in rval:
-                log.error("Unexpected results from EthGasStation: {}".format(resp.body))
-            elif not isinstance(rval['safeLow'], float):
-                log.error("Unexpected 'safeLow' gas price returned by EthGasStation: {}".format(rval['safeLow']))
-            else:
-                gwei_x10 = int(rval['safeLow'])
-                safelow_wei = gwei_x10 * 100000000
-
-            # sanity check the values, if safelow is greater than standard
-            # then use the safe low as standard + an extra gwei of padding
-            if safelow_wei > standard_wei:
-                standard_wei = safelow_wei + 1000000000
-
-            await self.redis.mset(
-                'gas_station_safelow_gas_price', hex(safelow_wei),
-                'gas_station_standard_gas_price', hex(standard_wei))
-
+                log.warning("monitor using config['ethereum'] node")
+                node_url = config['ethereum']['url']
+            eth = JsonRPCClient(node_url,
+                                connect_timeout=5.0,
+                                request_timeout=10.0)
+            eth_gasprice = await eth.eth_gasPrice()
+            eth_gasprice = hex(eth_gasprice)
         except:
-            log.exception("Error updating default gas price from EthGasStation")
+            log.exception("Error updating default gas price from eth node")
 
-        if frequency:
-            manager_dispatcher.update_default_gas_price(frequency).delay(frequency)
+        # in case the eth gas station check failed, fall back on node gas price
+        # if the node gas price is higher than the previous eth gas station fast gas price
+        if fast_wei is None and eth_gasprice is not None:
+            old_fast_wei = parse_int(await self.redis.get('gas_station_fast_gas_price'))
+            if parse_int(eth_gasprice) > old_fast_wei:
+                await self.redis.set('gas_station_fast_gas_price', eth_gasprice)
+
+        async with self.db:
+            await self.db.execute("INSERT INTO gas_price_history "
+                                  "(timestamp, blocknumber, gas_station_fast, gas_station_standard, gas_station_safelow, eth_gasprice) "
+                                  "VALUES ($1, $2, $3, $4, $5, $6)",
+                                  int(time.time()), blocknumber, fast_wei, standard_wei, safelow_wei, eth_gasprice)
+            await self.db.commit()
 
 
 class TaskManager(BaseEthServiceWorker):
@@ -687,7 +733,6 @@ class TaskManager(BaseEthServiceWorker):
 
     def start_interval_services(self):
         manager_dispatcher.sanity_check(60).delay(60)
-        manager_dispatcher.update_default_gas_price(60).delay(60)
 
     async def _work(self):
         await super()._work()

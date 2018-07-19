@@ -384,9 +384,13 @@ class GasPriceHandler(RedisMixin, BaseHandler):
         self.set_header("Access-Control-Allow-Headers", "x-requested-with")
         self.set_header('Access-Control-Allow-Methods', 'GET')
 
-        gas_station_gas_price = await self.redis.get('gas_station_standard_gas_price')
+        gas_station_gas_price = await self.redis.get('gas_station_fast_gas_price')
         if gas_station_gas_price is None:
-            gas_station_gas_price = hex(config['ethereum'].getint('default_gasprice', DEFAULT_GASPRICE))
+            gas_station_gas_price = await self.eth.eth_gasPrice()
+            if gas_station_gas_price:
+                gas_station_gas_price = hex(gas_station_gas_price)
+            else:
+                gas_station_gas_price = hex(config['ethereum'].getint('default_gasprice', DEFAULT_GASPRICE))
         else:
             gas_station_gas_price = gas_station_gas_price.decode('utf-8')
         self.write({

@@ -175,6 +175,7 @@ class BlockMonitor:
                 log.exception("Failed eth_getBlockByNumber call")
                 break
             if block:
+                manager_dispatcher.update_default_gas_price(self.last_block_number + 1)
                 self._last_saw_new_block = asyncio.get_event_loop().time()
                 processing_start_time = asyncio.get_event_loop().time()
                 if self._lastlog + 300 < asyncio.get_event_loop().time():

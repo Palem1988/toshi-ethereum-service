@@ -41,6 +41,14 @@ CREATE TABLE blocks (
     stale BOOLEAN NOT NULL DEFAULT FALSE
 );
 
+CREATE TABLE gas_price_history (
+    timestamp BIGINT PRIMARY KEY,
+    blocknumber BIGINT NOT NULL,
+    gas_station_fast VARCHAR,
+    gas_station_standard VARCHAR,
+    gas_station_safelow VARCHAR,
+    eth_gasprice VARCHAR
+);
 
 CREATE TABLE IF NOT EXISTS notification_registrations (
     toshi_id VARCHAR,
@@ -146,6 +154,20 @@ CREATE TABLE IF NOT EXISTS collectible_transfer_events (
     token_id_offset INTEGER DEFAULT 2
 );
 
+CREATE TABLE IF NOT EXISTS collectible_transfer_logs (
+    blocknumber BIGINT NOT NULL,
+    log_index INT NOT NULL,
+    transaction_hash VARCHAR NOT NULL,
+    transaction_log_index INTEGER NOT NULL,
+
+    contract_address VARCHAR NOT NULL,
+    token_id VARCHAR NOT NULL,
+    from_address VARCHAR NOT NULL,
+    to_address VARCHAR NOT NULL,
+
+    PRIMARY KEY (blocknumber, log_index)
+);
+
 CREATE TABLE IF NOT EXISTS collectible_tokens (
     contract_address VARCHAR,
     token_id VARCHAR,
@@ -213,8 +235,10 @@ CREATE INDEX IF NOT EXISTS idx_token_balance_eth_address_visibility_balance ON t
 
 CREATE INDEX IF NOT EXISTS idx_collectible_transfer_events_collectible_address ON collectible_transfer_events (collectible_address);
 
+CREATE INDEX IF NOT EXISTS idx_collectible_transfer_logs_transaction_hash ON collectible_transfer_logs (transaction_hash);
+
 CREATE INDEX IF NOT EXISTS idx_block_blocknumber_desc ON blocks (blocknumber DESC);
 CREATE INDEX IF NOT EXISTS idx_block_hash ON blocks (hash);
 CREATE INDEX IF NOT EXISTS idx_block_parent_hash ON blocks (parent_hash);
 
-UPDATE database_version SET version_number = 24;
+UPDATE database_version SET version_number = 25;
