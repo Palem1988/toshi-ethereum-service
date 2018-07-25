@@ -652,12 +652,13 @@ class BlockMonitor:
             log.error("Error: unexpectedly broke from reorg point finding loop")
             return False
 
-        # mark blocks as stale
         async with self.pool.acquire() as con:
+            # mark blocks as stale
             await con.execute("UPDATE blocks SET stale = TRUE WHERE blocknumber > $1",
                               forked_at_blocknumber)
-
-        # update token balances
+            # revert collectible's last block numbers
+            await con.execute("UPDATE collectibles SET last_block = $1 WHERE last_block > $1",
+                              forked_at_blocknumber - 1)
 
         self.last_block_number = forked_at_blocknumber
         return True
