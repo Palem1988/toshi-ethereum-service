@@ -6,6 +6,7 @@ from toshi.ethereum.utils import data_decoder
 from ethereum.utils import sha3
 from ethereum.abi import decode_abi, process_type, decode_single
 from toshi.utils import parse_int
+from toshi.jsonrpc.errors import JsonRPCError
 from toshieth.collectibles.base import CollectiblesTaskManager
 from urllib.parse import urlparse
 from tornado.httpclient import AsyncHTTPClient
@@ -140,12 +141,15 @@ class ERC721TaskManager(CollectiblesTaskManager):
                 if token is None:
                     # get token details
                     token_uri = None
+                    token_uri_data = None
                     while True:
                         try:
                             token_uri_data = await self.eth.eth_call(to_address=collectible_address, data="{}{:064x}".format(
                                 TOKEN_URI_CALL_DATA, int(token_id, 16)))
                             break
-                        except:
+                        except JsonRPCError as e:
+                            if e.message == 'VM execution error.':
+                                break
                             continue
 
                     if token_uri_data and token_uri_data != "0x":

@@ -15,6 +15,7 @@ from toshi.ethereum.contract import Contract
 ERC20_CONTRACT = open(os.path.join(os.path.dirname(__file__), "erc20.sol")).read()
 SIMPLE_EXCHANGE_CONTRACT = open(os.path.join(os.path.dirname(__file__), "simpleexchange.sol")).read()
 WETH_CONTRACT = open(os.path.join(os.path.dirname(__file__), "weth9.sol")).read()
+GREETER_CONTRACT = open(os.path.join(os.path.dirname(__file__), "greeter.sol")).read().encode('utf-8')
 
 TEST_PRIVATE_KEY = data_decoder("0xe8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35")
 TEST_PRIVATE_KEY_2 = data_decoder("0x8945608e66736aceb34a83f94689b4e98af497ffc9dc2004a93824096330fa77")
@@ -866,3 +867,29 @@ class ERC20Test(EthServiceBaseTest):
                                       TEST_ADDRESS_2)
         self.assertEqual(tokens[0]['balance'], hex(5 * 10 ** 18))
         self.assertEqual(tokens2[0]['balance'], hex(5 * 10 ** 18))
+
+    @gen_test(timeout=60)
+    @requires_full_stack(parity=True, push_client=True, block_monitor=True, erc20_manager=True)
+    async def test_fail_to_get_bad_token(self, *, parity, push_client, monitor, erc20_manager):
+        address = "0x025075e83607d8254c5a98d9446dc3a7f5a7ebe3"
+        res = await self.fetch("/token/{}".format(address))
+        self.assertEqual(res.code, 404)
+
+        # test non-critical failure if we had the contract, but it got destroyed
+        async with self.pool.acquire() as con:
+            await con.execute("INSERT INTO tokens (symbol, name, contract_address, decimals) VALUES ($1, $2, $3, $4)",
+                              "TEST", "test", address, 18)
+
+        res = await self.fetch_signed("/token".format(address), method="POST",
+                                      body={"contract_address": address},
+                                      signing_key=os.urandom(32))
+        self.assertEqual(res.code, 200)
+
+        # make sure non-critical failure if a non-erc20 contract is targetted
+        contract = await Contract.from_source_code(GREETER_CONTRACT, "Greeter",
+                                                   constructor_data=[], deployer_private_key=FAUCET_PRIVATE_KEY)
+
+        res = await self.fetch_signed("/token".format(address), method="POST",
+                                      body={"contract_address": contract.address},
+                                      signing_key=os.urandom(32))
+        self.assertEqual(res.code, 400)

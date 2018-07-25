@@ -714,13 +714,14 @@ class TransactionQueueHandler(EthereumMixin, BalanceMixin, BaseTaskHandler):
         # if the node gas price is higher than the previous eth gas station fast gas price
         if fast_wei is None and eth_gasprice is not None:
             old_fast_wei = parse_int(await self.redis.get('gas_station_fast_gas_price'))
-            if parse_int(eth_gasprice) > old_fast_wei:
+            if old_fast_wei is None or parse_int(eth_gasprice) > old_fast_wei:
                 await self.redis.set('gas_station_fast_gas_price', eth_gasprice)
 
         async with self.db:
             await self.db.execute("INSERT INTO gas_price_history "
                                   "(timestamp, blocknumber, gas_station_fast, gas_station_standard, gas_station_safelow, eth_gasprice) "
-                                  "VALUES ($1, $2, $3, $4, $5, $6)",
+                                  "VALUES ($1, $2, $3, $4, $5, $6) "
+                                  "ON CONFLICT (timestamp) DO NOTHING",
                                   int(time.time()), blocknumber, fast_wei, standard_wei, safelow_wei, eth_gasprice)
             await self.db.commit()
 

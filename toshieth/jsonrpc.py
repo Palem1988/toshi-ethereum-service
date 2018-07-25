@@ -223,7 +223,10 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
                 if value is None:
                     # get the value from the ethereum node
                     data = "0x70a08231000000000000000000000000" + from_address[2:].lower()
-                    value = await self.eth.eth_call(to_address=token_address, data=data)
+                    try:
+                        value = await self.eth.eth_call(to_address=token_address, data=data)
+                    except:
+                        log.exception("Unable to get balance for token {} for address {}".format(token_address, from_address))
 
             value = parse_int(value)
             if value is None or value < 0:
@@ -665,8 +668,13 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
                         "SELECT balance FROM token_balances WHERE contract_address = $1 and eth_address = $2",
                         contract_address, self.user_toshi_id)
                 if balance is None:
-                    balance = await self.eth.eth_call(to_address=contract_address, data="{}000000000000000000000000{}".format(
-                        ERC20_BALANCEOF_CALL_DATA, self.user_toshi_id[2:]))
+                    try:
+                        balance = await self.eth.eth_call(to_address=contract_address, data="{}000000000000000000000000{}".format(
+                            ERC20_BALANCEOF_CALL_DATA, self.user_toshi_id[2:]))
+                    except:
+                        log.exception("Unable to get balance of erc20 token {} for address {}".format(contract_address,
+                                                                                                      self.user_toshi_id))
+                        return None
                     if balance == "0x":
                         balance = "0x0"
                     else:

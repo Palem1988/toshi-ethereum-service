@@ -61,7 +61,11 @@ class ERC20UpdateHandler(EthereumMixin, BaseTaskHandler):
         for eth_address in eth_addresses:
             for token in tokens:
                 data = "0x70a08231000000000000000000000000" + eth_address[2:]
-                f = client.eth_call(to_address=token['contract_address'], data=data, block=blocknumber)
+                try:
+                    f = client.eth_call(to_address=token['contract_address'], data=data, block=blocknumber)
+                except:
+                    log.exception("Error getting balance of token {} for address {}".format(token['contract_address'], eth_address))
+                    continue
                 futures.append((token['contract_address'], eth_address, token['custom'], f))
 
         if len(futures) > 0:

@@ -118,23 +118,40 @@ class FungibleCollectibleTaskManager(CollectiblesTaskManager):
                 asset_contract_address = decode_single(
                     process_type('address'), data_decoder(_log['topics'][1]))
 
-                token_uri_data = await self.eth.eth_call(to_address=asset_contract_address, data=TOKEN_URI_CALL_DATA)
+                try:
+                    token_uri_data = await self.eth.eth_call(to_address=asset_contract_address, data=TOKEN_URI_CALL_DATA)
+                except:
+                    log.exception("Error getting token uri for fungible collectible asset {}".format(asset_contract_address))
+                    continue
                 asset_token_uri = decode_abi(['string'], data_decoder(token_uri_data))
                 try:
                     asset_token_uri = asset_token_uri[0].decode('utf-8', errors='replace')
                 except:
                     log.exception("Invalid tokenURI for fungible collectible asset {}".format(asset_contract_address))
                     continue
-                name_data = await self.eth.eth_call(to_address=asset_contract_address, data=NAME_CALL_DATA)
+                try:
+                    name_data = await self.eth.eth_call(to_address=asset_contract_address, data=NAME_CALL_DATA)
+                except:
+                    log.exception("Error getting name for fungible collectible asset {}".format(asset_contract_address))
+                    continue
                 asset_name = decode_abi(['string'], data_decoder(name_data))
                 try:
                     asset_name = asset_name[0].decode('utf-8', errors='replace')
                 except:
                     log.exception("Invalid name for fungible collectible asset {}".format(asset_contract_address))
                     continue
-                creator_data = await self.eth.eth_call(to_address=asset_contract_address, data=CREATOR_CALL_DATA)
+
+                try:
+                    creator_data = await self.eth.eth_call(to_address=asset_contract_address, data=CREATOR_CALL_DATA)
+                except:
+                    log.exception("Error getting creator for fungible collectible asset {}".format(asset_contract_address))
+                    continue
                 asset_creator = decode_abi(['address'], data_decoder(creator_data))[0]
-                total_supply_data = await self.eth.eth_call(to_address=asset_contract_address, data=TOTAL_SUPPLY_CALL_DATA)
+                try:
+                    total_supply_data = await self.eth.eth_call(to_address=asset_contract_address, data=TOTAL_SUPPLY_CALL_DATA)
+                except:
+                    log.exception("Error getting total supply for fungible collectible asset {}".format(asset_contract_address))
+                    continue
                 total_supply = decode_abi(['uint256'], data_decoder(total_supply_data))[0]
 
                 # owner is currently always the address that triggered the AssetCreate event
