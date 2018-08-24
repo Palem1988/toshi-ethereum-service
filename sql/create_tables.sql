@@ -134,6 +134,7 @@ CREATE TABLE IF NOT EXISTS collectibles (
     image_url_format_string VARCHAR,
     type INTEGER DEFAULT 721,  -- valid types:
                                -- 721: follows erc721 spec perfectly
+                               -- 3: old erc721 (token id in transfer event not indexed)
                                -- 1: erc721 but requiring some special treatment
                                -- 2: fungible collectible
                                -- 0: very special collectible

@@ -33,7 +33,7 @@ class ERC721TaskManager(CollectiblesTaskManager):
 
         async with self.pool.acquire() as con:
             contract_addresses = await con.fetch(
-                "SELECT contract_address FROM collectibles WHERE type = 1 OR type = 721")
+                "SELECT contract_address FROM collectibles WHERE type = 1 OR type = 721 OR type = 3")
 
         for row in contract_addresses:
             asyncio.get_event_loop().create_task(self.process_block_for_contract(row['contract_address']))
@@ -60,9 +60,8 @@ class ERC721TaskManager(CollectiblesTaskManager):
                 events = await con.fetch("SELECT * FROM collectible_transfer_events "
                                          "WHERE collectible_address = $1",
                                          collectible_address)
-            elif collectible['type'] == 721:
-                # use default erc721 event
-                # https://github.com/ethereum/EIPs/blob/master/EIPS/eip-721.md
+            elif collectible['type'] == 3:
+                # use default old (token id not indexed) erc721 event
                 events = [{
                     'collectible_address': collectible_address,
                     'contract_address': collectible_address,
@@ -73,6 +72,23 @@ class ERC721TaskManager(CollectiblesTaskManager):
                     'to_address_offset': 1,
                     'token_id_offset': 2
                 }]
+            elif collectible['type'] == 721:
+                # use default erc721 event
+                # https://github.com/ethereum/EIPs/blob/master/EIPS/eip-721.md
+                events = [{
+                    'collectible_address': collectible_address,
+                    'contract_address': collectible_address,
+                    'name': 'Transfer',
+                    'topic_hash': '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
+                    'arguments': ['address', 'address', 'uint256'],
+                    'indexed_arguments': [True, True, True],
+                    'to_address_offset': 1,
+                    'token_id_offset': 2
+                }]
+            else:
+                log.error("Collectible with unknown type {}".format(collectible_address))
+                del self._processing[collectible_address]
+                return
 
         from_block_number = collectible['last_block'] + 1
 
@@ -187,6 +203,8 @@ class ERC721TaskManager(CollectiblesTaskManager):
                         except:
                             log.exception("Error getting token metadata for {}:{} from {}".format(collectible_address, token_id, token_uri))
                             pass
+                    elif token_uri is not None:
+                        log.warning("token_uri is not a valid url: {}: {}".format(contract_address, token_uri))
 
                     if not token_image:
                         if collectible['image_url_format_string'] is not None:
