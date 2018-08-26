@@ -183,23 +183,27 @@ class ERC721TaskManager(CollectiblesTaskManager):
                         try:
                             resp = await AsyncHTTPClient(max_clients=100).fetch(parsed_uri.geturl())
                             metadata = json_decode(resp.body)
-                            if "properties" in metadata:
-                                metadata = metadata['properties']
-                            if 'name' in metadata:
-                                if type(metadata['name']) == dict and 'description' in metadata['name']:
-                                    token_name = metadata['name']['description']
-                                elif type(metadata['name']) == str:
-                                    token_name = metadata['name']
-                            if 'description' in metadata:
-                                if type(metadata['description']) == dict and 'description' in metadata['description']:
-                                    token_description = metadata['description']['description']
-                                elif type(metadata['description']) == str:
-                                    token_description = metadata['description']
-                            if 'image' in metadata:
-                                if type(metadata['image']) == dict and 'description' in metadata['image']:
-                                    token_image = metadata['image']['description']
-                                elif type(metadata['image']) == str:
-                                    token_image = metadata['image']
+                            properties = {}
+                            if "properties" in metadata and type(metadata['properties']) == dict:
+                                properties = metadata['properties']
+                            name_prop = properties.get('name', metadata.get('name', None))
+                            if name_prop:
+                                if type(name_prop) == dict and 'description' in name_prop:
+                                    token_name = name_prop['description']
+                                elif type(name_prop) == str:
+                                    token_name = name_prop
+                            description_prop = properties.get('description', metadata.get('description', None))
+                            if description_prop:
+                                if type(description_prop) == dict and 'description' in description_prop:
+                                    token_description = description_prop['description']
+                                elif type(description_prop) == str:
+                                    token_description = description_prop
+                            image_prop = properties.get('image', metadata.get('image', None))
+                            if image_prop:
+                                if type(image_prop) == dict and 'description' in image_prop:
+                                    token_image = image_prop['description']
+                                elif type(image_prop) == str:
+                                    token_image = image_prop
                         except:
                             log.exception("Error getting token metadata for {}:{} from {}".format(collectible_address, token_id, token_uri))
                             pass
