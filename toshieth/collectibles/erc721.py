@@ -23,6 +23,7 @@ class ERC721TaskManager(CollectiblesTaskManager):
         configure_logger(log)
         self._processing = {}
 
+    @log_unhandled_exceptions(logger=log)
     async def process_block(self, blocknumber=None):
         async with self.pool.acquire() as con:
             latest_block_number = await con.fetchval(
@@ -144,8 +145,9 @@ class ERC721TaskManager(CollectiblesTaskManager):
                     to_address = arguments[event['to_address_offset']]
                     token_id = parse_int(arguments[event['token_id_offset']])
 
-                    log.debug("{} #{} -> {} -> {}".format(collectible['name'], token_id,
-                                                          event['name'], to_address))
+                    if collectible['ready'] is False:
+                        log.info("{} #{} -> {} -> {}".format(collectible['name'], token_id,
+                                                             event['name'], to_address))
                     updates[hex(token_id)] = (collectible_address, hex(token_id), to_address)
 
         if len(updates) > 0:
@@ -221,6 +223,7 @@ class ERC721TaskManager(CollectiblesTaskManager):
                             token_id_int=int(token_id, 16),
                             token_uri=token_uri)
 
+                    log.info("new '{}' collectible: {} {} {} {} {}".format(collectible['name'], token_id, token_uri, token_name, token_description, token_image))
                     new_token = updates.pop(token_id, ()) + (token_uri, token_name, token_description, token_image)
                     new_tokens.append(new_token)
 
