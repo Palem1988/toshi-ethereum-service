@@ -16,6 +16,9 @@ log = logging.getLogger("toshieth.erc721")
 
 TOKEN_URI_CALL_DATA = "0x" + sha3("tokenURI(uint256)")[:4].hex()
 
+MLB_CONTRACT_ADDRESS = "0x8c9b261faef3b3c2e64ab5e58e04615f8c788099"
+MLB_METADATA_URL = "https://api-dot-cryptobaseball-b691f.appspot.com/playerId/{}"
+
 class ERC721TaskManager(CollectiblesTaskManager):
 
     def __init__(self):
@@ -157,60 +160,73 @@ class ERC721TaskManager(CollectiblesTaskManager):
                     token = await con.fetchrow("SELECT * FROM collectible_tokens WHERE contract_address = $1 AND token_id = $2",
                                                collectible_address, token_id)
                 if token is None:
-                    # get token details
-                    token_uri = None
-                    token_uri_data = None
-                    while True:
-                        try:
-                            token_uri_data = await self.eth.eth_call(to_address=collectible_address, data="{}{:064x}".format(
-                                TOKEN_URI_CALL_DATA, int(token_id, 16)))
-                            break
-                        except JsonRPCError as e:
-                            if e.message == 'VM execution error.':
-                                break
-                            continue
-
-                    if token_uri_data and token_uri_data != "0x":
-                        try:
-                            token_uri = decode_abi(['string'], data_decoder(token_uri_data))[0].decode('utf-8', errors='replace')
-                        except:
-                            log.exception("Error decoding tokenURI data")
-
                     token_image = None
                     token_name = None
                     token_description = None
-                    # if token_uri points to a valid url check if it points to json (for the erc721 metadata)
-                    parsed_uri = urlparse(token_uri)
-                    if token_uri and parsed_uri.netloc and parsed_uri.scheme in ['http', 'https']:
+                    token_uri = None
+                    token_uri_data = None
+
+                    if collectible_address == MLB_CONTRACT_ADDRESS:
+                        url = MLB_METADATA_URL.format(token_id)
                         try:
-                            resp = await AsyncHTTPClient(max_clients=100).fetch(parsed_uri.geturl())
+                            resp = await AsyncHTTPClient(max_clients=100).fetch(url)
                             metadata = json_decode(resp.body)
-                            properties = {}
-                            if "properties" in metadata and type(metadata['properties']) == dict:
-                                properties = metadata['properties']
-                            name_prop = properties.get('name', metadata.get('name', None))
-                            if name_prop:
-                                if type(name_prop) == dict and 'description' in name_prop:
-                                    token_name = name_prop['description']
-                                elif type(name_prop) == str:
-                                    token_name = name_prop
-                            description_prop = properties.get('description', metadata.get('description', None))
-                            if description_prop:
-                                if type(description_prop) == dict and 'description' in description_prop:
-                                    token_description = description_prop['description']
-                                elif type(description_prop) == str:
-                                    token_description = description_prop
-                            image_prop = properties.get('image', metadata.get('image', None))
-                            if image_prop:
-                                if type(image_prop) == dict and 'description' in image_prop:
-                                    token_image = image_prop['description']
-                                elif type(image_prop) == str:
-                                    token_image = image_prop
+                            token_name = metadata['result']['mlbPlayerInfo']['fullName']
+                            token_image = metadata['result']['imagesURL']['threeSixtyImages']['0']
                         except:
-                            log.exception("Error getting token metadata for {}:{} from {}".format(collectible_address, token_id, token_uri))
+                            log.exception("Error getting token metadata for {}:{} from {}".format(collectible_address, token_id, url))
                             pass
-                    elif token_uri is not None:
-                        log.warning("token_uri is not a valid url: {}: {}".format(contract_address, token_uri))
+                    else:
+
+                        # get token details
+                        while True:
+                            try:
+                                token_uri_data = await self.eth.eth_call(to_address=collectible_address, data="{}{:064x}".format(
+                                    TOKEN_URI_CALL_DATA, int(token_id, 16)))
+                                break
+                            except JsonRPCError as e:
+                                if e.message == 'VM execution error.':
+                                    break
+                                continue
+
+                        if token_uri_data and token_uri_data != "0x":
+                            try:
+                                token_uri = decode_abi(['string'], data_decoder(token_uri_data))[0].decode('utf-8', errors='replace')
+                            except:
+                                log.exception("Error decoding tokenURI data")
+
+                        # if token_uri points to a valid url check if it points to json (for the erc721 metadata)
+                        parsed_uri = urlparse(token_uri)
+                        if token_uri and parsed_uri.netloc and parsed_uri.scheme in ['http', 'https']:
+                            try:
+                                resp = await AsyncHTTPClient(max_clients=100).fetch(parsed_uri.geturl())
+                                metadata = json_decode(resp.body)
+                                properties = {}
+                                if "properties" in metadata and type(metadata['properties']) == dict:
+                                    properties = metadata['properties']
+                                name_prop = properties.get('name', metadata.get('name', None))
+                                if name_prop:
+                                    if type(name_prop) == dict and 'description' in name_prop:
+                                        token_name = name_prop['description']
+                                    elif type(name_prop) == str:
+                                        token_name = name_prop
+                                description_prop = properties.get('description', metadata.get('description', None))
+                                if description_prop:
+                                    if type(description_prop) == dict and 'description' in description_prop:
+                                        token_description = description_prop['description']
+                                    elif type(description_prop) == str:
+                                        token_description = description_prop
+                                image_prop = properties.get('image', metadata.get('image', None))
+                                if image_prop:
+                                    if type(image_prop) == dict and 'description' in image_prop:
+                                        token_image = image_prop['description']
+                                    elif type(image_prop) == str:
+                                        token_image = image_prop
+                            except:
+                                log.exception("Error getting token metadata for {}:{} from {}".format(collectible_address, token_id, token_uri))
+                                pass
+                        elif token_uri is not None:
+                            log.warning("token_uri is not a valid url: {}: {}".format(contract_address, token_uri))
 
                     if not token_image:
                         if collectible['image_url_format_string'] is not None:
