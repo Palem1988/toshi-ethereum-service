@@ -263,6 +263,37 @@ class ERC721TaskManager(CollectiblesTaskManager):
             await con.execute("UPDATE collectibles SET last_block = $1, ready = $2 WHERE contract_address = $3",
                               to_block_number, ready, collectible_address)
 
+        if collectible_address == MLB_CONTRACT_ADDRESS:
+            async with self.pool.acquire() as con:
+                tokens = await con.fetch(
+                    "SELECT * FROM collectible_tokens WHERE contract_address = $1 AND name IS NULL ORDER BY token_id LIMIT 100",
+                    collectible_address)
+
+            updates = []
+            for token in tokens:
+                token_id = token['token_id']
+
+                url = MLB_METADATA_URL.format(token_id)
+                try:
+                    resp = await AsyncHTTPClient(max_clients=100).fetch(url)
+                    metadata = json_decode(resp.body)
+                    token_name = metadata['result']['mlbPlayerInfo']['fullName']
+                    token_image = metadata['result']['imagesURL']['threeSixtyImages']['0']
+
+                    updates.append((collectible_address, token_id, token_name, token_image))
+                    log.info("updated '{}' collectible: {} {} {} {} {}".format(collectible['name'], token_id, None, token_name, None, token_image))
+                except:
+                    log.exception("Error getting token metadata for {}:{} from {}".format(collectible_address, token_id, url))
+                    pass
+
+            if updates:
+                async with self.pool.acquire() as con:
+                    await con.executemany(
+                        "UPDATE collectible_tokens "
+                        "SET name = $3, image = $4 "
+                        "WHERE contract_address = $1 AND token_id = $2",
+                        updates)
+
         del self._processing[collectible_address]
         if to_block_number < latest_block_number:
             asyncio.get_event_loop().create_task(self.process_block_for_contract(collectible_address))
