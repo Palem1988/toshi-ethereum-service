@@ -232,10 +232,13 @@ class SendTransactionHandler(BalanceMixin, DatabaseMixin, RedisMixin, RequestVer
         try:
             result = await ToshiEthJsonRPC(sender_toshi_id, self.application, self.request).send_transaction(**self.json)
         except JsonRPCInternalError as e:
+            log.exception("Error in POST /tx from: {}: args: {}".format(sender_toshi_id, json_encode(self.json)))
             raise JSONHTTPError(500, body={'errors': [e.data]})
         except JsonRPCError as e:
+            log.exception("Error in POST /tx from: {}: args: {}".format(sender_toshi_id, json_encode(self.json)))
             raise JSONHTTPError(400, body={'errors': [e.data]})
         except TypeError:
+            log.exception("Error in POST /tx from {}: args: {}".format(sender_toshi_id, json_encode(self.json)))
             raise JSONHTTPError(400, body={'errors': [{'id': 'bad_arguments', 'message': 'Bad Arguments'}]})
 
         self.write({
