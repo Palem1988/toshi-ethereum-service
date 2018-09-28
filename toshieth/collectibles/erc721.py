@@ -171,7 +171,10 @@ class ERC721TaskManager(CollectiblesTaskManager):
                         try:
                             resp = await AsyncHTTPClient(max_clients=100).fetch(url)
                             metadata = json_decode(resp.body)
-                            token_name = metadata['result']['mlbPlayerInfo']['fullName']
+                            if 'fullName' not in metadata['result']['mlbPlayerInfo']:
+                                token_name = None
+                            else:
+                                token_name = metadata['result']['mlbPlayerInfo']['fullName']
                             token_image = metadata['result']['imagesURL']['threeSixtyImages']['0']
                         except:
                             log.exception("Error getting token metadata for {}:{} from {}".format(collectible_address, token_id, url))
@@ -277,8 +280,17 @@ class ERC721TaskManager(CollectiblesTaskManager):
                 try:
                     resp = await AsyncHTTPClient(max_clients=100).fetch(url)
                     metadata = json_decode(resp.body)
-                    token_name = metadata['result']['mlbPlayerInfo']['fullName']
+                    if 'mlbPlayerInfo' not in metadata['result']:
+                        continue
+                    if 'fullName' not in metadata['result']['mlbPlayerInfo']:
+                        token_name = None
+                    else:
+                        token_name = metadata['result']['mlbPlayerInfo']['fullName']
                     token_image = metadata['result']['imagesURL']['threeSixtyImages']['0']
+
+                    if token_name == token['name'] and token_image == token['image']:
+                        # nothing to update
+                        continue
 
                     updates.append((collectible_address, token_id, token_name, token_image))
                     log.info("updated '{}' collectible: {} {} {} {} {}".format(collectible['name'], token_id, None, token_name, None, token_image))
