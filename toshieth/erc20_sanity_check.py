@@ -29,34 +29,35 @@ class ERC20SanityCheck:
             log.info("starting erc20 balance sanity check process")
 
             async with self.pool.acquire() as con:
-                token_registrations = await con.fetch("SELECT * FROM token_registrations")
+                bad_from = await con.fetch(
+                    "SELECT b.eth_address, b.contract_address FROM token_balances b "
+                    "JOIN token_transactions t ON b.contract_address = t.contract_address AND b.eth_address = t.from_address "
+                    "JOIN transactions x ON x.transaction_id = t.transaction_id "
+                    "WHERE b.blocknumber > 0 and x.blocknumber > b.blocknumber "
+                    "GROUP BY b.eth_address, b.contract_address")
+                bad_to = await con.fetch(
+                    "SELECT b.eth_address, b.contract_address FROM token_balances b "
+                    "JOIN token_transactions t ON b.contract_address = t.contract_address AND b.eth_address = t.to_address "
+                    "JOIN transactions x ON x.transaction_id = t.transaction_id "
+                    "WHERE b.blocknumber > 0 and x.blocknumber > b.blocknumber "
+                    "GROUP BY b.eth_address, b.contract_address")
 
-            for reg in token_registrations:
-                async with self.pool.acquire() as con:
-                    balances = await con.fetch("SELECT * FROM token_balances where eth_address = $1",
-                                               reg['eth_address'])
-                tokens1 = {t['contract_address']: t['balance'] for t in balances}
-                erc20_dispatcher.update_token_cache("*", reg['eth_address'])
-                await asyncio.sleep(10)
-                async with self.pool.acquire() as con:
-                    balances = await con.fetch("SELECT * FROM token_balances where eth_address = $1",
-                                               reg['eth_address'])
-                tokens2 = {t['contract_address']: t['balance'] for t in balances}
+            bad_balances = {}
+            for b in bad_from:
+                if b['contract_address'] not in bad_balances:
+                    bad_balances[b['contract_address']] = set()
+                bad_balances[b['contract_address']].add(b['eth_address'])
+            for b in bad_to:
+                if b['contract_address'] not in bad_balances:
+                    bad_balances[b['contract_address']] = set()
+                bad_balances[b['contract_address']].add(b['eth_address'])
 
-                # report
-                fixed = 0
-                for key in tokens1:
-                    if key in tokens2:
-                        if tokens1[key] != tokens2[key]:
-                            fixed += 1
-                            log.warning("fixed {}'s {} balance: {} -> {}".format(reg['eth_address'], key, tokens1[key], tokens2[key]))
-                        tokens2.pop(key)
-                    else:
-                        fixed += 1
-                        log.warning("fixed {}'s {} balance: {} -> {}".format(reg['eth_address'], key, tokens1[key], "0x0"))
-                        for key in tokens2:
-                            fixed += 1
-                            log.warning("fixed {}'s {} balance: {} -> {}".format(reg['eth_address'], key, "0x0", tokens2[key]))
+            for contract_address, addresses in bad_balances.items():
+                log.info("Found bad balances for token {} for addresses:\n    - {}".format(contract_address, "\n    - ".join(list(addresses))))
+                erc20_dispatcher.update_token_cache(contract_address, *addresses)
+
+            # run every 5 minutes
+            await asyncio.sleep(300)
 
 
 if __name__ == '__main__':
