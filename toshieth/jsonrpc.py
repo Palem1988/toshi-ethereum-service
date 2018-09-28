@@ -579,7 +579,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
                         token = {
                             'name': custom_token['name'],
                             'symbol': custom_token['symbol'],
-                            'decimals': custom_token['decimals'],
+                            'decimals': custom_token['decimals'] or 0,
                             'icon_url': None,
                             'format': token['format']
                         }
@@ -593,7 +593,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
             details = {
                 "symbol": token['symbol'],
                 "name": token['name'],
-                "decimals": token['decimals'],
+                "decimals": token['decimals'] or 0,
                 "value": balance, # NOTE: 'value' left in for backwards compatibility
                 "balance": balance,
                 "contract_address": token_address
@@ -624,7 +624,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
                 details = {
                     "symbol": b['symbol'],
                     "name": b['name'],
-                    "decimals": b['decimals'],
+                    "decimals": b['decimals'] or 0,
                     "value": b['balance'], # NOTE: 'value' left in for backwards compatibility
                     "balance": b['balance'],
                     "contract_address": b['contract_address']
@@ -660,7 +660,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
                 'symbol': row['symbol'],
                 'name': row['name'],
                 'contract_address': row['contract_address'],
-                'decimals': row['decimals']
+                'decimals': row['decimals'] or 0
             }
             if self.user_toshi_id:
                 async with self.db:
@@ -706,7 +706,7 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
             'symbol': symbol,
             'name': name,
             'contract_address': contract_address,
-            'decimals': decimals
+            'decimals': decimals or 0
         }
         if self.user_toshi_id:
             rval['balance'] = hex(balance)

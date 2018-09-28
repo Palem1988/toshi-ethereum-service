@@ -61,7 +61,7 @@ class TokenListHandler(DatabaseMixin, BaseHandler):
                     'symbol': row['symbol'],
                     'name': row['name'],
                     'contract_address': row['contract_address'],
-                    'decimals': row['decimals']
+                    'decimals': row['decimals'] or 0
                 }
                 if row['icon_url'] is not None:
                     token['icon'] = row['icon_url']
