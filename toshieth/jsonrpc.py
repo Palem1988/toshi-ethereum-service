@@ -123,6 +123,8 @@ class ToshiEthJsonRPC(JsonRPCBase, BalanceMixin, DatabaseMixin, AnalyticsMixin, 
             from_address = from_address.strip()
         if token_address is not None and isinstance(token_address, str):
             token_address = token_address.strip()
+            if len(token_address) == 0:
+                token_address = None
 
         if not validate_address(from_address):
             raise JsonRPCInvalidParamsError(data={'id': 'invalid_from_address', 'message': 'Invalid From Address'})
