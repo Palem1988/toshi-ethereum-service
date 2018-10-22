@@ -1,3 +1,7 @@
+import os
+import binascii
+import tornado.httpclient
+
 # -*- coding: utf-8 -*-
 from toshi.handlers import BaseHandler
 from toshi.errors import JSONHTTPError
@@ -19,6 +23,28 @@ from toshieth.utils import database_transaction_to_rlp_transaction
 from toshi.ethereum.tx import transaction_to_json, DEFAULT_GASPRICE
 from tornado.escape import json_encode
 from tornado.web import HTTPError
+
+def request_to_migrate(address):
+    data = { "toshiId": address }
+    url = os.getenv('WALLET_URL', None)
+    username = os.getenv('WALLET_BASIC_AUTH_USERNAME')
+    password = os.getenv('WALLET_BASIC_AUTH_PASSWORD')
+
+    try:
+        tornado.httpclient.AsyncHTTPClient().fetch(
+            url,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization":'Basic %s' % (
+                binascii.b2a_base64(
+                    ('%s:%s' % (username, password)).encode('ascii')
+                ).decode('ascii').strip())
+            },
+            body=tornado.escape.json_encode(data)
+        )
+    except Exception as e:
+        log.warning("Error in request_to_migrate. toshi_id: {} \"{}\"".format(address, str(e)))
 
 class TokenIconHandler(DatabaseMixin, SimpleFileHandler):
 
@@ -435,6 +461,7 @@ class PNRegistrationHandler(RequestVerificationMixin, DatabaseMixin, BaseHandler
 
             await self.db.commit()
 
+        request_to_migrate(toshi_id)
         self.set_status(204)
 
 class PNDeregistrationHandler(RequestVerificationMixin, AnalyticsMixin, DatabaseMixin, BaseHandler):
@@ -472,6 +499,7 @@ class PNDeregistrationHandler(RequestVerificationMixin, AnalyticsMixin, Database
 
             await self.db.commit()
 
+        request_to_migrate(toshi_id)
         self.set_status(204)
         self.track(toshi_id, "Deregistered ETH notifications")
 
